@@ -13,19 +13,20 @@ datasource db {
 }
 
 model User {
-  id            String    @id
-  name          String
-  email         String
-  emailVerified Boolean   @default(false)
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  role          String?
-  banned        Boolean?  @default(false)
-  banReason     String?
-  banExpires    DateTime?
-  sessions      Session[]
-  accounts      Account[]
+  id              String    @id
+  name            String
+  email           String
+  emailVerified   Boolean   @default(false)
+  image           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  role            String?
+  banned          Boolean?  @default(false)
+  banReason       String?
+  banExpires      DateTime?
+  sessions        Session[]
+  accounts        Account[]
+  organizedEvents Event[]
 
   @@unique([email])
   @@map("user")
@@ -78,4 +79,27 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model Event {
+  id            String      @id @default(cuid())
+  name          String
+  description   String?
+  coverImageUrl String?
+  location      String?
+  startsAt      DateTime
+  endsAt        DateTime
+  status        EventStatus @default(DRAFT)
+  organizerId   String
+  organizer     User        @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([organizerId])
+  @@index([status, startsAt])
 }

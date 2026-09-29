@@ -34,14 +34,14 @@ Check-in
 - PostgreSQL Docker Compose 与 Better Auth Prisma 模型；
 - Next.js、NestJS、Expo 应用骨架；
 - Foundry ERC-721 `ChainPass` 原型；
-- `api-client`、`schemas`、`web3` 共享包骨架。
+- `api-client`、`schemas` 的 Create Event Contract，以及 `web3` 共享包骨架；
+- Merchant Create Event Vertical Slice：Event 模型、`POST /events`、OpenAPI、共享 Client 与 Web 创建页。
 
 尚未实现或尚未接通：
 
-- Event、TicketType、Pass、CheckIn Prisma 业务模型；
-- 对应 NestJS 业务模块、DTO、授权与测试；
-- Swagger/OpenAPI 与共享 API Client；
-- Web/Mobile 票务主流程；
+- TicketType、Pass、CheckIn Prisma 业务模型；
+- 对应的后续 NestJS 业务模块、DTO、授权与测试；
+- Create Event 之后的 Web 主流程与全部 Mobile 票务 UI；
 - ABI/地址发布、Base Sepolia 部署证据和应用链上集成；
 - DB 与链上交易的状态协调。
 

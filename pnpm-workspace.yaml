@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
-  '@prisma/engines': false
+  "@prisma/engines": false
+  "@scarf/scarf": false
   prisma: false
   unrs-resolver: false

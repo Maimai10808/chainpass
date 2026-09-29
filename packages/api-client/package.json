@@ -11,5 +11,8 @@
   },
   "devDependencies": {
     "@chainpass/config": "workspace:*"
+  },
+  "dependencies": {
+    "@chainpass/schemas": "workspace:*"
   }
 }

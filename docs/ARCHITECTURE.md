@@ -9,10 +9,10 @@
 截至当前仓库状态：
 
 - Monorepo、Next.js、NestJS、Expo、Foundry、PostgreSQL 与四个共享包的目录已经建立。
-- Better Auth 已接入 API、Web 与 Mobile；Prisma 仅包含 Better Auth 的 `User`、`Session`、`Account`、`Verification` 模型。
-- API 除 Better Auth 路由外仅有 Nest starter 的根路由，尚无 Event、TicketType、Pass、CheckIn 业务模块，也尚未配置 Swagger/OpenAPI。
-- Web 与 Mobile 只有 starter UI 和 Auth 测试页面，尚未实现票务主流程。
-- `@chainpass/api-client`、`@chainpass/schemas`、`@chainpass/web3` 的入口文件当前为空，应用也尚未消费这些包。
+- Better Auth 已接入 API、Web 与 Mobile；Prisma 在现有 Auth 模型上增加了关联 Better Auth `User` 的 MVP `Event` 模型。
+- API 已实现 `POST /events` Vertical Slice，并在 `/docs` 与 `/docs/openapi.json` 暴露最小 Swagger/OpenAPI Contract；TicketType、Pass、CheckIn 业务模块尚未实现。
+- Web 已实现 `/merchant/events/new` 创建页；其余票务主流程和 Mobile 业务 UI 尚未实现。
+- `@chainpass/api-client` 与 `@chainpass/schemas` 已承载 Create Event Contract 并由 Web/API 消费；`@chainpass/web3` 入口仍为空。
 - Solidity 合约已有早期 ERC-721 `ChainPass`，支持创建链上 Event、钱包自助 Claim/Mint 和 Organizer Check-in；尚无测试、部署脚本、部署地址、ABI 发布或应用集成。
 - `infra/docker-compose.yml` 当前只启动本地 PostgreSQL；Nginx、Web/API 容器与生产部署尚未实现。
 
@@ -85,7 +85,7 @@ Mobile 不实现服务端业务规则，不导入 NestJS/Prisma 实现。修改 
 
 ## 4. Packages 职责
 
-这些包当前大多是空骨架。下面定义的是允许进入各包的边界，而非已实现清单。
+这些包仍按需逐步实现。下面定义允许进入各包的边界，而非完整能力清单。
 
 ### `@chainpass/api-client`
 
@@ -130,7 +130,7 @@ Prisma
 PostgreSQL
 ```
 
-当前 `@chainpass/api-client` 尚未实现，业务接口也尚未建立；新 Vertical Slice 应朝该路径落地，避免在两个客户端各自形成临时 Contract。
+Create Event 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
 
 链上数据流目标：
 

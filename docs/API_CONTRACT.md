@@ -4,7 +4,7 @@
 
 ## 1. 当前状态与目标链路
 
-当前仓库只有 Nest starter 根路由与 Better Auth 路由，尚未配置 Swagger/OpenAPI，也没有 Event、TicketType、Pass 或 CheckIn DTO。`packages/api-client/src/index.ts` 当前为空，Web/Mobile 尚未消费共享业务 Client。
+当前首个业务 Contract 为 `POST /events`：NestJS 负责路由、权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装带 Session Cookie 的调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。TicketType、Pass 与 CheckIn Contract 尚未实现。
 
 业务 API 的目标链路是：
 

@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: chainpass-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chainpass
+      POSTGRES_PASSWORD: chainpass_dev
+      POSTGRES_DB: chainpass
+    ports:
+      - "55432:5432"
+    volumes:
+      - chainpass_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chainpass -d chainpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  chainpass_postgres_data:

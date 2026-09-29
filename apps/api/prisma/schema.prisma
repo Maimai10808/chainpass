@@ -27,6 +27,7 @@ model User {
   sessions        Session[]
   accounts        Account[]
   organizedEvents Event[]
+  ownedPasses     Pass[]
 
   @@unique([email])
   @@map("user")
@@ -98,6 +99,7 @@ model Event {
   organizerId   String
   organizer     User         @relation(fields: [organizerId], references: [id], onDelete: Restrict)
   ticketTypes   TicketType[]
+  passes        Pass[]
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -122,6 +124,33 @@ model TicketType {
   status       TicketTypeStatus @default(ACTIVE)
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
+  passes       Pass[]
 
   @@index([eventId, status])
+}
+
+enum PassStatus {
+  ACTIVE
+  CHECKED_IN
+  REVOKED
+}
+
+model Pass {
+  id              String     @id @default(cuid())
+  eventId         String
+  event           Event      @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  ticketTypeId    String
+  ticketType      TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
+  ownerId         String
+  owner           User       @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  status          PassStatus @default(ACTIVE)
+  tokenId         String?
+  mintTxHash      String?
+  contractAddress String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([ticketTypeId, ownerId])
+  @@index([ownerId, createdAt])
+  @@index([eventId])
 }

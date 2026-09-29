@@ -38,12 +38,13 @@ Check-in
 - Merchant Create Event Vertical Slice：Event 模型、`POST /events`、OpenAPI、共享 Client 与 Web 创建页。
 - Merchant Issue TicketType Vertical Slice：TicketType 模型、容量/金额约束、Ownership 授权、创建/列表 API、共享 Client 与 Event 管理页。
 - Publish Event + User Browse Event Vertical Slice：发布规则、Draft 公开隔离、公开活动列表/详情、ACTIVE TicketType 与服务端剩余量视图。
+- User Claim Pass + My Passes Vertical Slice：Pass 模型、原子库存扣减、重复领取约束、Claim API 与 Web 持票列表。
 
 尚未实现或尚未接通：
 
-- Pass、CheckIn Prisma 业务模型；
+- CheckIn Prisma 业务模型；
 - 对应的后续 NestJS 业务模块、DTO、授权与测试；
-- Claim Pass 之后的 Web 主流程与全部 Mobile 票务 UI；
+- Blockchain Mint 之后的 Web 主流程与全部 Mobile 票务 UI；
 - ABI/地址发布、Base Sepolia 部署证据和应用链上集成；
 - DB 与链上交易的状态协调。
 
@@ -86,8 +87,8 @@ Done
 1. Merchant Create Event：业务模型、Session organizer、权限、创建页面。**已完成**
 2. TicketType / Issue Ticket：最小票种与容量规则，不做座位系统。**已完成**
 3. Event List / Detail：发布状态与用户可见范围。**已完成**
-4. User Claim Pass：Session owner、库存/重复领取约束和 Pass 记录。
-5. My Passes：仅返回当前用户可见 Pass。
+4. User Claim Pass：Session owner、库存/重复领取约束和 Pass 记录。**已完成**
+5. My Passes：仅返回当前用户可见 Pass。**已完成**
 6. Blockchain Mint：明确 signer、网络、ID 映射、交易状态和失败处理后接入。
 7. Pass On-chain Verification：展示可核对的 chain、contract、token 与 transaction 信息。
 8. Merchant Verify / Check-in：权限、活动 Ownership、防重复核销和状态更新。

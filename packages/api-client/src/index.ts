@@ -1,16 +1,20 @@
 import {
   createEventInputSchema,
   createTicketTypeInputSchema,
+  claimPassResultSchema,
   eventResponseSchema,
   publicEventDetailSchema,
   publicEventListSchema,
+  myPassesResponseSchema,
   ticketTypeListResponseSchema,
   ticketTypeResponseSchema,
   type CreateEventInput,
   type CreateTicketTypeInput,
+  type ClaimPassResult,
   type EventResponse,
   type PublicEventDetail,
   type PublicEventSummary,
+  type PassView,
   type TicketTypeResponse,
 } from "@chainpass/schemas";
 
@@ -105,6 +109,34 @@ export function createApiClient(options: ChainPassApiClientOptions) {
       return publicEventDetailSchema.parse(await response.json());
     },
 
+    async claimPass(ticketTypeId: string): Promise<ClaimPassResult> {
+      const response = await fetcher(
+        `${baseUrl}/ticket-types/${encodeURIComponent(ticketTypeId)}/claim`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return claimPassResultSchema.parse(await response.json());
+    },
+
+    async getMyPasses(): Promise<PassView[]> {
+      const response = await fetcher(`${baseUrl}/passes/me`, {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return myPassesResponseSchema.parse(await response.json());
+    },
+
     async createTicketType(
       eventId: string,
       input: CreateTicketTypeInput,
@@ -177,8 +209,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type {
   CreateEventInput,
   CreateTicketTypeInput,
+  ClaimPassResult,
   EventResponse,
   PublicEventDetail,
   PublicEventSummary,
+  PassView,
   TicketTypeResponse,
 } from "@chainpass/schemas";

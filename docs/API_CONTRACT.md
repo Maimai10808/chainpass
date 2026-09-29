@@ -4,23 +4,29 @@
 
 ## 1. 当前状态与目标链路
 
-当前业务 Contract 包含 Event 创建/发布、Merchant 管理查询、公开活动列表/详情，以及 TicketType 创建/列表。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。Pass 与 CheckIn Contract 尚未实现。
+当前业务 Contract 包含 Event 创建/发布、Merchant 管理查询、公开活动列表/详情、TicketType 创建/列表，以及 Pass 领取和当前用户 Pass 列表。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。Blockchain Mint 与 CheckIn Contract 尚未实现。
 
 Event 接口边界如下：
 
-| Method | Path                            | Access          | Semantics                                                           |
-| ------ | ------------------------------- | --------------- | ------------------------------------------------------------------- |
-| `POST` | `/events`                       | merchant/admin  | 创建 `DRAFT` Event，organizer 来自 Session                          |
-| `GET`  | `/events/:eventId/manage`       | organizer/admin | 返回 Merchant 管理所需的完整 Event                                  |
-| `POST` | `/events/:eventId/publish`      | organizer/admin | 满足发布规则后执行 `DRAFT → PUBLISHED`；重复发布幂等返回当前 Event  |
-| `GET`  | `/events`                       | public          | 只返回 `PUBLISHED` Event 的公开字段                                 |
-| `GET`  | `/events/:eventId`              | public          | 只返回 `PUBLISHED` Event 与 `ACTIVE` TicketType；Draft 按未找到处理 |
-| `POST` | `/events/:eventId/ticket-types` | organizer/admin | 创建 TicketType                                                     |
-| `GET`  | `/events/:eventId/ticket-types` | authenticated   | 返回管理流程的 TicketType 列表                                      |
+| Method | Path                                | Access          | Semantics                                                           |
+| ------ | ----------------------------------- | --------------- | ------------------------------------------------------------------- |
+| `POST` | `/events`                           | merchant/admin  | 创建 `DRAFT` Event，organizer 来自 Session                          |
+| `GET`  | `/events/:eventId/manage`           | organizer/admin | 返回 Merchant 管理所需的完整 Event                                  |
+| `POST` | `/events/:eventId/publish`          | organizer/admin | 满足发布规则后执行 `DRAFT → PUBLISHED`；重复发布幂等返回当前 Event  |
+| `GET`  | `/events`                           | public          | 只返回 `PUBLISHED` Event 的公开字段                                 |
+| `GET`  | `/events/:eventId`                  | public          | 只返回 `PUBLISHED` Event 与 `ACTIVE` TicketType；Draft 按未找到处理 |
+| `POST` | `/events/:eventId/ticket-types`     | organizer/admin | 创建 TicketType                                                     |
+| `GET`  | `/events/:eventId/ticket-types`     | authenticated   | 返回管理流程的 TicketType 列表                                      |
+| `POST` | `/ticket-types/:ticketTypeId/claim` | user/admin      | 使用 Session owner 领取 Pass；成功返回 Pass 与剩余库存              |
+| `GET`  | `/passes/me`                        | authenticated   | 只返回当前 Session User 拥有的 Pass                                 |
 
 发布 Event 前服务端按 Authentication → Permission → Ownership → Business Rule 校验：merchant 只能发布自己组织的 Event，admin 可发布任意 Event；Event 必须存在、时间范围合法，并至少拥有一个 `ACTIVE` TicketType。缺少可发行票种返回 `400 EVENT_HAS_NO_ACTIVE_TICKET_TYPES`。
 
 公开 Event Detail 不暴露 `organizerId`、创建时间等内部管理字段。公开 TicketType 只包含 `ACTIVE` 项，并由服务端计算 `remaining = totalSupply - claimedCount`。
+
+Claim Pass 请求不接受可信身份或库存字段；`ownerId` 固定来自 `session.user.id`。Event 必须为 `PUBLISHED`、TicketType 必须为 `ACTIVE` 且有库存，同一 User 对同一 TicketType 只能领取一次。重复领取、未发布、停用和售罄使用 `409` 与稳定业务错误码区分。
+
+库存扣减和 Pass 创建在同一数据库事务中完成。PostgreSQL 条件更新只在 `claimedCount < totalSupply` 时递增；`Pass(ticketTypeId, ownerId)` 唯一约束提供最终防重，Pass 创建失败会回滚库存更新。
 
 TicketType 的 `price` 以最小货币单位的非负整数写入 PostgreSQL `BIGINT`；创建请求使用 JavaScript 安全整数，响应使用十进制字符串避免 JSON/JavaScript 精度损失，`"0"` 表示免费票。`claimedCount` 由服务端初始化为 `0`，客户端不能提交。Merchant 创建票种前必须通过 Event ownership 校验，admin 可以代管，查询接口保持为已登录用户可读的简单列表。
 
@@ -69,7 +75,7 @@ DTO 和 OpenAPI metadata 必须同步。Web/Mobile 通过 `@chainpass/api-client
 
 ## 4. API Client 规则
 
-`@chainpass/api-client` 是 Web 与 Mobile 的统一业务访问层。当前 Web 分别通过 `getManagedEvent`、`publishEvent`、`listPublishedEvents` 和 `getPublishedEvent` 消费管理与公开 Contract。它应：
+`@chainpass/api-client` 是 Web 与 Mobile 的统一业务访问层。当前 Web 通过 `getManagedEvent`、`publishEvent`、`listPublishedEvents`、`getPublishedEvent`、`claimPass` 和 `getMyPasses` 消费管理、公开与持票 Contract。它应：
 
 - 从 OpenAPI 生成类型/Client，或在生成链路落地前集中维护唯一实现；
 - 使用调用方提供的 base URL 和平台适配的 Session/Cookie transport；

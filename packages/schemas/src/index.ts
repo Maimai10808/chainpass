@@ -100,6 +100,44 @@ export const publicEventDetailSchema = publicEventSummarySchema.extend({
 
 export const publicEventListSchema = z.array(publicEventSummarySchema);
 
+export const passStatusSchema = z.enum(["ACTIVE", "CHECKED_IN", "REVOKED"]);
+
+export const passViewSchema = z
+  .object({
+    id: z.string(),
+    status: passStatusSchema,
+    tokenId: z.string().nullable(),
+    mintTxHash: z.string().nullable(),
+    contractAddress: z.string().nullable(),
+    createdAt: z.iso.datetime({ offset: true }),
+    event: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        location: z.string().nullable(),
+        startsAt: z.iso.datetime({ offset: true }),
+        endsAt: z.iso.datetime({ offset: true }),
+      })
+      .strict(),
+    ticketType: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        price: z.string().regex(/^\d+$/),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const claimPassResultSchema = z
+  .object({
+    pass: passViewSchema,
+    remaining: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const myPassesResponseSchema = z.array(passViewSchema);
+
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;
 export type EventResponse = z.infer<typeof eventResponseSchema>;
 export type EventStatus = z.infer<typeof eventStatusSchema>;
@@ -109,3 +147,6 @@ export type TicketTypeStatus = z.infer<typeof ticketTypeStatusSchema>;
 export type PublicEventSummary = z.infer<typeof publicEventSummarySchema>;
 export type PublicTicketType = z.infer<typeof publicTicketTypeSchema>;
 export type PublicEventDetail = z.infer<typeof publicEventDetailSchema>;
+export type PassStatus = z.infer<typeof passStatusSchema>;
+export type PassView = z.infer<typeof passViewSchema>;
+export type ClaimPassResult = z.infer<typeof claimPassResultSchema>;

@@ -1,98 +1,146 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState } from "react";
+import {
+  Button,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+import {
+  signIn,
+  signOut,
+  signUp,
+  useSession,
+} from "../lib/auth-client";
 
 export default function HomeScreen() {
+  const { data: session, isPending } = useSession();
+
+  const [name, setName] = useState("Mobile Test User");
+  const [email, setEmail] = useState("mobile-user@chainpass.local");
+  const [password, setPassword] = useState("ChainPass123!");
+  const [message, setMessage] = useState("");
+
+  async function handleSignUp() {
+    setMessage("");
+
+    const result = await signUp.email({
+      name,
+      email,
+      password,
+    });
+
+    if (result.error) {
+      setMessage(`Sign up failed: ${result.error.message}`);
+      return;
+    }
+
+    setMessage("Sign up successful");
+  }
+
+  async function handleSignIn() {
+    setMessage("");
+
+    const result = await signIn.email({
+      email,
+      password,
+    });
+
+    if (result.error) {
+      setMessage(`Sign in failed: ${result.error.message}`);
+      return;
+    }
+
+    setMessage("Sign in successful");
+  }
+
+  async function handleSignOut() {
+    await signOut();
+    setMessage("Signed out");
+  }
+
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+    <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }}>
+      <Text style={{ fontSize: 28, fontWeight: "700" }}>
+        ChainPass Auth Test
+      </Text>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+      <TextInput
+        value={name}
+        onChangeText={setName}
+        placeholder="Name"
+        style={{
+          borderWidth: 1,
+          borderColor: "#ccc",
+          padding: 12,
+          borderRadius: 8,
+        }}
+      />
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+      <TextInput
+        value={email}
+        onChangeText={setEmail}
+        placeholder="Email"
+        autoCapitalize="none"
+        keyboardType="email-address"
+        style={{
+          borderWidth: 1,
+          borderColor: "#ccc",
+          padding: 12,
+          borderRadius: 8,
+        }}
+      />
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+      <TextInput
+        value={password}
+        onChangeText={setPassword}
+        placeholder="Password"
+        secureTextEntry
+        style={{
+          borderWidth: 1,
+          borderColor: "#ccc",
+          padding: 12,
+          borderRadius: 8,
+        }}
+      />
+
+      <View style={{ gap: 10 }}>
+        <Button title="Sign Up" onPress={handleSignUp} />
+        <Button title="Sign In" onPress={handleSignIn} />
+        <Button title="Sign Out" onPress={handleSignOut} />
+      </View>
+
+      {message ? (
+        <Text style={{ fontWeight: "600" }}>{message}</Text>
+      ) : null}
+
+      <View
+        style={{
+          borderWidth: 1,
+          borderColor: "#ccc",
+          padding: 16,
+          borderRadius: 12,
+          gap: 8,
+        }}
+      >
+        <Text style={{ fontSize: 18, fontWeight: "600" }}>
+          Current Session
+        </Text>
+
+        {isPending ? (
+          <Text>Loading session...</Text>
+        ) : session ? (
+          <>
+            <Text>ID: {session.user.id}</Text>
+            <Text>Name: {session.user.name}</Text>
+            <Text>Email: {session.user.email}</Text>
+            <Text>Role: {session.user.role ?? "user"}</Text>
+          </>
+        ) : (
+          <Text>Not signed in</Text>
+        )}
+      </View>
+    </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});

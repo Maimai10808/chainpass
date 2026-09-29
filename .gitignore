@@ -29,7 +29,7 @@ web-build/
 **/.turbo/
 
 # Prisma generated client
-apps/api/generated/
+apps/api/src/generated/
 
 # Foundry
 contracts/cache/

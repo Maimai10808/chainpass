@@ -9,10 +9,10 @@
 截至当前仓库状态：
 
 - Monorepo、Next.js、NestJS、Expo、Foundry、PostgreSQL 与四个共享包的目录已经建立。
-- Better Auth 已接入 API、Web 与 Mobile；Prisma 在现有 Auth 模型上增加了关联 Better Auth `User` 的 MVP `Event` 模型。
-- API 已实现 `POST /events` Vertical Slice，并在 `/docs` 与 `/docs/openapi.json` 暴露最小 Swagger/OpenAPI Contract；TicketType、Pass、CheckIn 业务模块尚未实现。
-- Web 已实现 `/merchant/events/new` 创建页；其余票务主流程和 Mobile 业务 UI 尚未实现。
-- `@chainpass/api-client` 与 `@chainpass/schemas` 已承载 Create Event Contract 并由 Web/API 消费；`@chainpass/web3` 入口仍为空。
+- Better Auth 已接入 API、Web 与 Mobile；Prisma 在现有 Auth 模型上增加了关联 Better Auth `User` 的 `Event`，以及关联 `Event` 的 MVP `TicketType`。
+- API 已实现 Create Event 与 Merchant Issue TicketType Vertical Slice，并在 `/docs` 与 `/docs/openapi.json` 暴露 Swagger/OpenAPI Contract；Pass、CheckIn 业务模块尚未实现。
+- Web 已实现 `/merchant/events/new` 创建页和 `/merchant/events/:eventId` 票种管理页；其余票务主流程和 Mobile 业务 UI 尚未实现。
+- `@chainpass/api-client` 与 `@chainpass/schemas` 已承载 Event/TicketType Contract 并由 Web/API 消费；`@chainpass/web3` 入口仍为空。
 - Solidity 合约已有早期 ERC-721 `ChainPass`，支持创建链上 Event、钱包自助 Claim/Mint 和 Organizer Check-in；尚无测试、部署脚本、部署地址、ABI 发布或应用集成。
 - `infra/docker-compose.yml` 当前只启动本地 PostgreSQL；Nginx、Web/API 容器与生产部署尚未实现。
 
@@ -130,7 +130,7 @@ Prisma
 PostgreSQL
 ```
 
-Create Event 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
+Create Event 与 Issue TicketType 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
 
 链上数据流目标：
 

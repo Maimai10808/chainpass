@@ -4,7 +4,9 @@
 
 ## 1. 当前状态与目标链路
 
-当前首个业务 Contract 为 `POST /events`：NestJS 负责路由、权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装带 Session Cookie 的调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。TicketType、Pass 与 CheckIn Contract 尚未实现。
+当前业务 Contract 包含 `POST /events`、`GET /events/:eventId`、`POST /events/:eventId/ticket-types` 与 `GET /events/:eventId/ticket-types`。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装带 Session Cookie 的调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。Pass 与 CheckIn Contract 尚未实现。
+
+TicketType 的 `price` 以最小货币单位的非负整数写入 PostgreSQL `BIGINT`；创建请求使用 JavaScript 安全整数，响应使用十进制字符串避免 JSON/JavaScript 精度损失，`"0"` 表示免费票。`claimedCount` 由服务端初始化为 `0`，客户端不能提交。Merchant 创建票种前必须通过 Event ownership 校验，admin 可以代管，查询接口保持为已登录用户可读的简单列表。
 
 业务 API 的目标链路是：
 

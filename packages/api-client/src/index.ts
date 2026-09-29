@@ -1,8 +1,13 @@
 import {
   createEventInputSchema,
+  createTicketTypeInputSchema,
   eventResponseSchema,
+  ticketTypeListResponseSchema,
+  ticketTypeResponseSchema,
   type CreateEventInput,
+  type CreateTicketTypeInput,
   type EventResponse,
+  type TicketTypeResponse,
 } from "@chainpass/schemas";
 
 export interface ChainPassApiClientOptions {
@@ -44,6 +49,56 @@ export function createApiClient(options: ChainPassApiClientOptions) {
 
       return eventResponseSchema.parse(await response.json());
     },
+
+    async getEvent(eventId: string): Promise<EventResponse> {
+      const response = await fetcher(
+        `${baseUrl}/events/${encodeURIComponent(eventId)}`,
+        { credentials: "include" },
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return eventResponseSchema.parse(await response.json());
+    },
+
+    async createTicketType(
+      eventId: string,
+      input: CreateTicketTypeInput,
+    ): Promise<TicketTypeResponse> {
+      const payload = createTicketTypeInputSchema.parse(input);
+      const response = await fetcher(
+        `${baseUrl}/events/${encodeURIComponent(eventId)}/ticket-types`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return ticketTypeResponseSchema.parse(await response.json());
+    },
+
+    async listTicketTypes(eventId: string): Promise<TicketTypeResponse[]> {
+      const response = await fetcher(
+        `${baseUrl}/events/${encodeURIComponent(eventId)}/ticket-types`,
+        { credentials: "include" },
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return ticketTypeListResponseSchema.parse(await response.json());
+    },
   };
 }
 
@@ -77,4 +132,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export type { CreateEventInput, EventResponse } from "@chainpass/schemas";
+export type {
+  CreateEventInput,
+  CreateTicketTypeInput,
+  EventResponse,
+  TicketTypeResponse,
+} from "@chainpass/schemas";

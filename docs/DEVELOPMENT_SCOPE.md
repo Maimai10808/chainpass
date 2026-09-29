@@ -36,12 +36,13 @@ Check-in
 - Foundry ERC-721 `ChainPass` 原型；
 - `api-client`、`schemas` 的 Create Event Contract，以及 `web3` 共享包骨架；
 - Merchant Create Event Vertical Slice：Event 模型、`POST /events`、OpenAPI、共享 Client 与 Web 创建页。
+- Merchant Issue TicketType Vertical Slice：TicketType 模型、容量/金额约束、Ownership 授权、创建/列表 API、共享 Client 与 Event 管理页。
 
 尚未实现或尚未接通：
 
-- TicketType、Pass、CheckIn Prisma 业务模型；
+- Pass、CheckIn Prisma 业务模型；
 - 对应的后续 NestJS 业务模块、DTO、授权与测试；
-- Create Event 之后的 Web 主流程与全部 Mobile 票务 UI；
+- TicketType 之后的 Web 主流程与全部 Mobile 票务 UI；
 - ABI/地址发布、Base Sepolia 部署证据和应用链上集成；
 - DB 与链上交易的状态协调。
 

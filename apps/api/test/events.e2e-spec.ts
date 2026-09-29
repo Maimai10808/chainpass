@@ -147,6 +147,31 @@ describe('Merchant create event', () => {
     expect(response.body.code).toBe('VALIDATION_ERROR');
   });
 
+  it('returns an event by id to an authenticated user', async () => {
+    const merchant = await signUpAs('merchant', 'event-detail');
+    const created = await request(app.getHttpServer())
+      .post('/events')
+      .set('Cookie', merchant.cookie)
+      .send({
+        name: 'Event management detail',
+        startsAt: '2026-10-12T01:00:00.000Z',
+        endsAt: '2026-10-12T09:00:00.000Z',
+      })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .get(`/events/${created.body.id as string}`)
+      .set('Cookie', merchant.cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      id: created.body.id,
+      name: 'Event management detail',
+      status: 'DRAFT',
+      organizerId: merchant.userId,
+    });
+  });
+
   async function signUpAs(
     role: 'admin' | 'merchant' | 'user',
     label = 'default',

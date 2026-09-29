@@ -195,6 +195,12 @@ export default function CreateEventPage() {
               <Result label="Status" value={createdEvent.status} />
               <Result label="Organizer" value={createdEvent.organizerId} />
             </dl>
+            <Link
+              className="mt-5 inline-flex rounded-lg bg-emerald-900 px-4 py-2.5 text-sm font-medium text-white"
+              href={`/merchant/events/${createdEvent.id}`}
+            >
+              Manage event and issue tickets
+            </Link>
           </section>
         ) : null}
       </div>

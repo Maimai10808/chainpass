@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import {
   Session,
   UserHasPermission,
@@ -10,7 +10,10 @@ import {
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
+  ApiParam,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -74,5 +77,17 @@ export class EventsController {
     @Session() session: UserSession<typeof auth>,
   ): Promise<EventResponse> {
     return this.eventsService.create(input, session.user.id);
+  }
+
+  @Get(':eventId')
+  @UserHasPermission({ permission: { event: ['read'] } })
+  @ApiOperation({ operationId: 'getEvent', summary: 'Get an event by ID' })
+  @ApiParam({ name: 'eventId', description: 'Event ID' })
+  @ApiOkResponse({ type: EventResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Authentication required' })
+  @ApiForbiddenResponse({ description: 'Event read permission required' })
+  @ApiNotFoundResponse({ description: 'Event not found' })
+  getById(@Param('eventId') eventId: string): Promise<EventResponse> {
+    return this.eventsService.getById(eventId);
   }
 }

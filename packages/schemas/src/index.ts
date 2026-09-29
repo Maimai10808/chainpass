@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const eventStatusSchema = z.enum(["DRAFT", "PUBLISHED"]);
+export const ticketTypeStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);
 
 export const createEventInputSchema = z
   .object({
@@ -33,6 +34,43 @@ export const eventResponseSchema = z
   })
   .strict();
 
+export const createTicketTypeInputSchema = z
+  .object({
+    name: z.string().trim().min(1, "Ticket type name is required").max(200),
+    description: z.string().trim().max(2_000).optional(),
+    totalSupply: z
+      .number()
+      .int("Total supply must be an integer")
+      .positive("Total supply must be greater than zero")
+      .max(2_147_483_647),
+    price: z
+      .number()
+      .int("Price must be an integer in minor currency units")
+      .nonnegative("Price cannot be negative")
+      .max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+
+export const ticketTypeResponseSchema = z
+  .object({
+    id: z.string(),
+    eventId: z.string(),
+    name: z.string(),
+    description: z.string().nullable(),
+    price: z.string().regex(/^\d+$/),
+    totalSupply: z.number().int().positive(),
+    claimedCount: z.number().int().nonnegative(),
+    status: ticketTypeStatusSchema,
+    createdAt: z.iso.datetime({ offset: true }),
+    updatedAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+
+export const ticketTypeListResponseSchema = z.array(ticketTypeResponseSchema);
+
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;
 export type EventResponse = z.infer<typeof eventResponseSchema>;
 export type EventStatus = z.infer<typeof eventStatusSchema>;
+export type CreateTicketTypeInput = z.infer<typeof createTicketTypeInputSchema>;
+export type TicketTypeResponse = z.infer<typeof ticketTypeResponseSchema>;
+export type TicketTypeStatus = z.infer<typeof ticketTypeStatusSchema>;

@@ -87,19 +87,41 @@ enum EventStatus {
 }
 
 model Event {
-  id            String      @id @default(cuid())
+  id            String       @id @default(cuid())
   name          String
   description   String?
   coverImageUrl String?
   location      String?
   startsAt      DateTime
   endsAt        DateTime
-  status        EventStatus @default(DRAFT)
+  status        EventStatus  @default(DRAFT)
   organizerId   String
-  organizer     User        @relation(fields: [organizerId], references: [id], onDelete: Restrict)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  organizer     User         @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  ticketTypes   TicketType[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@index([organizerId])
   @@index([status, startsAt])
+}
+
+enum TicketTypeStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model TicketType {
+  id           String           @id @default(cuid())
+  eventId      String
+  event        Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name         String
+  description  String?
+  price        BigInt           @default(0)
+  totalSupply  Int
+  claimedCount Int              @default(0)
+  status       TicketTypeStatus @default(ACTIVE)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([eventId, status])
 }

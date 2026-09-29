@@ -5,6 +5,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { auth } from './auth/auth.js';
 import { EventsModule } from './events/events.module.js';
+import { TicketTypesModule } from './ticket-types/ticket-types.module.js';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { EventsModule } from './events/events.module.js';
       auth,
     }),
     EventsModule,
+    TicketTypesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

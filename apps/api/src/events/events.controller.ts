@@ -1,5 +1,14 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+} from '@nestjs/common';
+import {
+  AllowAnonymous,
   Session,
   UserHasPermission,
   type UserSession,
@@ -17,7 +26,12 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import type { CreateEventInput, EventResponse } from '@chainpass/schemas';
+import type {
+  CreateEventInput,
+  EventResponse,
+  PublicEventDetail,
+  PublicEventSummary,
+} from '@chainpass/schemas';
 
 import { auth } from '../auth/auth.js';
 import {
@@ -25,15 +39,19 @@ import {
   CreateEventValidationPipe,
 } from './dto/create-event.dto.js';
 import { EventResponseDto } from './dto/event-response.dto.js';
+import {
+  PublicEventDetailDto,
+  PublicEventSummaryDto,
+} from './dto/public-event-response.dto.js';
 import { EventsService } from './events.service.js';
 
 @ApiTags('events')
-@ApiCookieAuth('session')
 @Controller('events')
 export class EventsController {
   constructor(private readonly eventsService: EventsService) {}
 
   @Post()
+  @ApiCookieAuth('session')
   @UserHasPermission({ permission: { event: ['create'] } })
   @ApiOperation({ operationId: 'createEvent', summary: 'Create an event' })
   @ApiBody({ type: CreateEventDto })
@@ -79,15 +97,78 @@ export class EventsController {
     return this.eventsService.create(input, session.user.id);
   }
 
-  @Get(':eventId')
-  @UserHasPermission({ permission: { event: ['read'] } })
-  @ApiOperation({ operationId: 'getEvent', summary: 'Get an event by ID' })
+  @Post(':eventId/publish')
+  @ApiCookieAuth('session')
+  @HttpCode(HttpStatus.OK)
+  @UserHasPermission({ permission: { event: ['publish'] } })
+  @ApiOperation({ operationId: 'publishEvent', summary: 'Publish an event' })
+  @ApiParam({ name: 'eventId', description: 'Event ID' })
+  @ApiOkResponse({ type: EventResponseDto })
+  @ApiBadRequestResponse({
+    description: 'The event does not satisfy the publishing rules',
+  })
+  @ApiUnauthorizedResponse({ description: 'Authentication required' })
+  @ApiForbiddenResponse({
+    description: 'Event publish permission and organizer ownership required',
+  })
+  @ApiNotFoundResponse({ description: 'Event not found' })
+  publish(
+    @Param('eventId') eventId: string,
+    @Session() session: UserSession<typeof auth>,
+  ): Promise<EventResponse> {
+    return this.eventsService.publish(eventId, {
+      id: session.user.id,
+      role: session.user.role,
+    });
+  }
+
+  @Get()
+  @AllowAnonymous()
+  @ApiOperation({
+    operationId: 'listPublishedEvents',
+    summary: 'List published events',
+  })
+  @ApiOkResponse({ type: PublicEventSummaryDto, isArray: true })
+  listPublished(): Promise<PublicEventSummary[]> {
+    return this.eventsService.listPublished();
+  }
+
+  @Get(':eventId/manage')
+  @ApiCookieAuth('session')
+  @UserHasPermission({ permission: { event: ['update'] } })
+  @ApiOperation({
+    operationId: 'getManagedEvent',
+    summary: 'Get an event for merchant management',
+  })
   @ApiParam({ name: 'eventId', description: 'Event ID' })
   @ApiOkResponse({ type: EventResponseDto })
   @ApiUnauthorizedResponse({ description: 'Authentication required' })
-  @ApiForbiddenResponse({ description: 'Event read permission required' })
+  @ApiForbiddenResponse({
+    description: 'Event update permission and organizer ownership required',
+  })
   @ApiNotFoundResponse({ description: 'Event not found' })
-  getById(@Param('eventId') eventId: string): Promise<EventResponse> {
-    return this.eventsService.getById(eventId);
+  getManagedById(
+    @Param('eventId') eventId: string,
+    @Session() session: UserSession<typeof auth>,
+  ): Promise<EventResponse> {
+    return this.eventsService.getManagedById(eventId, {
+      id: session.user.id,
+      role: session.user.role,
+    });
+  }
+
+  @Get(':eventId')
+  @AllowAnonymous()
+  @ApiOperation({
+    operationId: 'getPublishedEvent',
+    summary: 'Get a published event by ID',
+  })
+  @ApiParam({ name: 'eventId', description: 'Event ID' })
+  @ApiOkResponse({ type: PublicEventDetailDto })
+  @ApiNotFoundResponse({ description: 'Published event not found' })
+  getPublishedById(
+    @Param('eventId') eventId: string,
+  ): Promise<PublicEventDetail> {
+    return this.eventsService.getPublishedById(eventId);
   }
 }

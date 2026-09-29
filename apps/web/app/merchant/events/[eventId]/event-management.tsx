@@ -26,6 +26,9 @@ export function EventManagement({ eventId }: { eventId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
   const {
     register,
     handleSubmit,
@@ -52,7 +55,7 @@ export function EventManagement({ eventId }: { eventId: string }) {
     let active = true;
 
     Promise.all([
-      apiClient.getEvent(eventId),
+      apiClient.getManagedEvent(eventId),
       apiClient.listTicketTypes(eventId),
     ])
       .then(([eventResult, ticketTypeResult]) => {
@@ -130,12 +133,31 @@ export function EventManagement({ eventId }: { eventId: string }) {
     try {
       const created = await apiClient.createTicketType(eventId, input);
       setTicketTypes((current) => [...current, created]);
+      setPublishError(null);
       setSuccessMessage(`${created.name} created successfully.`);
       reset({ name: "", description: "", totalSupply: 100, price: 0 });
     } catch (error) {
       setSubmitError(
         getErrorMessage(error, "Unable to create the ticket type."),
       );
+    }
+  }
+
+  async function publishEvent() {
+    if (isPublishing || event?.status !== "DRAFT") return;
+
+    setIsPublishing(true);
+    setPublishError(null);
+    setPublishSuccess(null);
+
+    try {
+      const published = await apiClient.publishEvent(eventId);
+      setEvent(published);
+      setPublishSuccess("Event published successfully.");
+    } catch (error) {
+      setPublishError(getErrorMessage(error, "Unable to publish this event."));
+    } finally {
+      setIsPublishing(false);
     }
   }
 
@@ -164,6 +186,48 @@ export function EventManagement({ eventId }: { eventId: string }) {
           <p className="mt-3 break-all text-sm text-zinc-500">
             Event ID: {event.id}
           </p>
+
+          {event.status === "DRAFT" ? (
+            <div className="mt-6 border-t border-zinc-200 pt-5">
+              <p className="text-sm text-zinc-600">
+                Publishing makes this event and its active ticket types visible
+                to everyone. At least one active ticket type is required.
+              </p>
+              {publishError ? (
+                <p
+                  className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+                  role="alert"
+                >
+                  {publishError}
+                </p>
+              ) : null}
+              <button
+                className="mt-4 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isPublishing}
+                onClick={publishEvent}
+                type="button"
+              >
+                {isPublishing ? "Publishing…" : "Publish event"}
+              </button>
+            </div>
+          ) : (
+            <div className="mt-6 flex flex-wrap items-center gap-4 border-t border-zinc-200 pt-5">
+              <Link
+                className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-medium text-white"
+                href={`/events/${event.id}`}
+              >
+                View public event
+              </Link>
+              {publishSuccess ? (
+                <p
+                  className="text-sm font-medium text-emerald-700"
+                  aria-live="polite"
+                >
+                  {publishSuccess}
+                </p>
+              ) : null}
+            </div>
+          )}
         </header>
 
         <section className="mt-8">

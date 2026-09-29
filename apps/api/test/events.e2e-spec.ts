@@ -147,7 +147,7 @@ describe('Merchant create event', () => {
     expect(response.body.code).toBe('VALIDATION_ERROR');
   });
 
-  it('returns an event by id to an authenticated user', async () => {
+  it('returns an event by id to its merchant organizer', async () => {
     const merchant = await signUpAs('merchant', 'event-detail');
     const created = await request(app.getHttpServer())
       .post('/events')
@@ -160,7 +160,7 @@ describe('Merchant create event', () => {
       .expect(201);
 
     const response = await request(app.getHttpServer())
-      .get(`/events/${created.body.id as string}`)
+      .get(`/events/${created.body.id as string}/manage`)
       .set('Cookie', merchant.cookie);
 
     expect(response.status).toBe(200);

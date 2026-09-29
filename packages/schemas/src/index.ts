@@ -68,9 +68,44 @@ export const ticketTypeResponseSchema = z
 
 export const ticketTypeListResponseSchema = z.array(ticketTypeResponseSchema);
 
+export const publicEventSummarySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().nullable(),
+    coverImageUrl: z.string().nullable(),
+    location: z.string().nullable(),
+    startsAt: z.iso.datetime({ offset: true }),
+    endsAt: z.iso.datetime({ offset: true }),
+    status: z.literal("PUBLISHED"),
+  })
+  .strict();
+
+export const publicTicketTypeSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().nullable(),
+    price: z.string().regex(/^\d+$/),
+    totalSupply: z.number().int().positive(),
+    claimedCount: z.number().int().nonnegative(),
+    remaining: z.number().int().nonnegative(),
+    status: z.literal("ACTIVE"),
+  })
+  .strict();
+
+export const publicEventDetailSchema = publicEventSummarySchema.extend({
+  ticketTypes: z.array(publicTicketTypeSchema),
+});
+
+export const publicEventListSchema = z.array(publicEventSummarySchema);
+
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;
 export type EventResponse = z.infer<typeof eventResponseSchema>;
 export type EventStatus = z.infer<typeof eventStatusSchema>;
 export type CreateTicketTypeInput = z.infer<typeof createTicketTypeInputSchema>;
 export type TicketTypeResponse = z.infer<typeof ticketTypeResponseSchema>;
 export type TicketTypeStatus = z.infer<typeof ticketTypeStatusSchema>;
+export type PublicEventSummary = z.infer<typeof publicEventSummarySchema>;
+export type PublicTicketType = z.infer<typeof publicTicketTypeSchema>;
+export type PublicEventDetail = z.infer<typeof publicEventDetailSchema>;

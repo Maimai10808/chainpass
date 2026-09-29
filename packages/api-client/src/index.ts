@@ -2,11 +2,15 @@ import {
   createEventInputSchema,
   createTicketTypeInputSchema,
   eventResponseSchema,
+  publicEventDetailSchema,
+  publicEventListSchema,
   ticketTypeListResponseSchema,
   ticketTypeResponseSchema,
   type CreateEventInput,
   type CreateTicketTypeInput,
   type EventResponse,
+  type PublicEventDetail,
+  type PublicEventSummary,
   type TicketTypeResponse,
 } from "@chainpass/schemas";
 
@@ -50,9 +54,9 @@ export function createApiClient(options: ChainPassApiClientOptions) {
       return eventResponseSchema.parse(await response.json());
     },
 
-    async getEvent(eventId: string): Promise<EventResponse> {
+    async getManagedEvent(eventId: string): Promise<EventResponse> {
       const response = await fetcher(
-        `${baseUrl}/events/${encodeURIComponent(eventId)}`,
+        `${baseUrl}/events/${encodeURIComponent(eventId)}/manage`,
         { credentials: "include" },
       );
 
@@ -61,6 +65,44 @@ export function createApiClient(options: ChainPassApiClientOptions) {
       }
 
       return eventResponseSchema.parse(await response.json());
+    },
+
+    async publishEvent(eventId: string): Promise<EventResponse> {
+      const response = await fetcher(
+        `${baseUrl}/events/${encodeURIComponent(eventId)}/publish`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return eventResponseSchema.parse(await response.json());
+    },
+
+    async listPublishedEvents(): Promise<PublicEventSummary[]> {
+      const response = await fetcher(`${baseUrl}/events`);
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return publicEventListSchema.parse(await response.json());
+    },
+
+    async getPublishedEvent(eventId: string): Promise<PublicEventDetail> {
+      const response = await fetcher(
+        `${baseUrl}/events/${encodeURIComponent(eventId)}`,
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return publicEventDetailSchema.parse(await response.json());
     },
 
     async createTicketType(
@@ -136,5 +178,7 @@ export type {
   CreateEventInput,
   CreateTicketTypeInput,
   EventResponse,
+  PublicEventDetail,
+  PublicEventSummary,
   TicketTypeResponse,
 } from "@chainpass/schemas";

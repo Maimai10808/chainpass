@@ -5,7 +5,7 @@ import type { App } from 'supertest/types';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 import { AppModule } from '../src/app.module.js';
-import { prisma } from '../src/lib/prisma.js';
+import { prisma } from '../src/database/prisma.js';
 
 describe('Wallet binding', () => {
   let app: INestApplication<App>;

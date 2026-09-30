@@ -4,7 +4,7 @@ import request from 'supertest';
 import type { App } from 'supertest/types';
 
 import { AppModule } from '../src/app.module.js';
-import { prisma } from '../src/lib/prisma.js';
+import { prisma } from '../src/database/prisma.js';
 
 describe('Event publishing and public discovery', () => {
   let app: INestApplication<App>;

@@ -8,7 +8,7 @@ import type {
   TicketTypeResponse,
 } from '@chainpass/schemas';
 
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../database/prisma.js';
 
 @Injectable()
 export class TicketTypesService {

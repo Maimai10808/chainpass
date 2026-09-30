@@ -108,7 +108,7 @@ apps/api/src/auth/
 Prisma：
 
 ```text
-apps/api/src/lib/prisma.ts
+apps/api/src/database/prisma.ts
 ```
 
 Better Auth HTTP Endpoint：

@@ -11,8 +11,8 @@ import type {
 } from '@chainpass/schemas';
 
 import { BlockchainService } from '../blockchain/blockchain.service.js';
+import { prisma } from '../database/prisma.js';
 import { Prisma } from '../generated/prisma/client.js';
-import { prisma } from '../lib/prisma.js';
 
 type PassWithDetails = Prisma.PassGetPayload<{
   include: { event: true; ticketType: true };

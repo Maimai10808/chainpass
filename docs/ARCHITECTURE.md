@@ -69,6 +69,25 @@ Web 通过 API/Client 访问业务，不直接访问 Prisma、PostgreSQL 或导�
 
 API 不依赖 Web 或 Mobile，不接受客户端自报的可信用户标识。
 
+API 源码按 Feature 聚合 Controller、Service、DTO 与 Nest Module，应用入口只负责组合模块：
+
+```text
+apps/api/src/
+  app.module.ts
+  main.ts
+  auth/          Better Auth 配置与权限
+  database/      Prisma Client / PostgreSQL adapter
+  health/        根级应用端点
+  events/        Event 创建、管理、发布与公开查询
+  ticket-types/  TicketType 创建与管理查询
+  passes/        Claim、My Passes 与 Mint orchestration
+  wallets/       Wallet challenge、验签与绑定
+  blockchain/    RPC、issuer signer、receipt 与链上恢复
+  generated/     Prisma 生成代码
+```
+
+Feature-specific DTO 留在各 Feature 内；只有被多个 Feature 实际复用的能力才进入共享基础设施目录。当前没有为未来需求预建通用 `common/` 抽象。
+
 ### `apps/mobile`
 
 当前技术栈为 Expo SDK 57、React Native 0.86、Expo Router 与 React 19。现有代码包含 Better Auth Expo Client、SecureStore 和 Auth 测试页。

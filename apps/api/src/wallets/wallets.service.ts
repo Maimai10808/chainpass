@@ -13,8 +13,8 @@ import type {
 import { canonicalizeEvmAddress } from '@chainpass/web3';
 import { recoverMessageAddress, type Hex } from 'viem';
 
+import { prisma } from '../database/prisma.js';
 import { Prisma } from '../generated/prisma/client.js';
-import { prisma } from '../lib/prisma.js';
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 

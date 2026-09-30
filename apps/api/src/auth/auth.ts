@@ -5,7 +5,7 @@ import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { admin as adminPlugin } from 'better-auth/plugins';
 import { expo } from '@better-auth/expo';
 
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../database/prisma.js';
 import { ac, roles } from './permissions.js';
 
 const secret = process.env.BETTER_AUTH_SECRET;

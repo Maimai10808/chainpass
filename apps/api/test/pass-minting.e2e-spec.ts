@@ -12,7 +12,7 @@ import {
   type OnChainMintResult,
 } from '../src/blockchain/blockchain.service.js';
 import { AppModule } from '../src/app.module.js';
-import { prisma } from '../src/lib/prisma.js';
+import { prisma } from '../src/database/prisma.js';
 
 describe('Pass minting', () => {
   let app: INestApplication<App>;

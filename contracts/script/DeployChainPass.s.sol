@@ -7,10 +7,9 @@ import {ChainPass} from "../src/ChainPass.sol";
 
 contract DeployChainPass is Script {
     function run() external returns (ChainPass chainPass) {
-        uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address issuer = vm.addr(deployerPrivateKey);
+        address issuer = vm.envAddress("DEPLOYER_ADDRESS");
 
-        vm.startBroadcast(deployerPrivateKey);
+        vm.startBroadcast();
         chainPass = new ChainPass(issuer);
         vm.stopBroadcast();
 

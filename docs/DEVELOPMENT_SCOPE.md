@@ -40,6 +40,7 @@ Check-in
 - Publish Event + User Browse Event Vertical Slice：发布规则、Draft 公开隔离、公开活动列表/详情、ACTIVE TicketType 与服务端剩余量视图。
 - User Claim Pass + My Passes Vertical Slice：Pass 模型、原子库存扣减、重复领取约束、Claim API 与 Web 持票列表。
 - Wallet Binding + Blockchain Mint Vertical Slice：签名 challenge、单 Wallet 绑定、issuer-only non-transferable ERC-721、Anvil 集成、链/DB 恢复与 Web Mint 状态。
+- Ethereum Sepolia Deployment：`ChainPass` 已部署至 chain ID `11155111`，完成 bytecode/owner/ERC-721 metadata 读取、Sourcify 精确匹配验证与真实 smoke mint；公开证据记录于 `contracts/deployments/sepolia.json`。
 - Merchant Verify / Check-in Vertical Slice：Event Ownership 核验、只读 Pass Verify、原子 CheckIn、防并发重复核销与 Merchant Web 操作页。
 - Dynamic QR Verification Vertical Slice：短时 HMAC Credential、用户动态 QR、Merchant 摄像头扫描，以及复用既有 Verify/Check-in。
 - Mobile User Experience Vertical Slice：Better Auth Expo/SecureStore 登录、公开活动浏览、Claim、My Passes、Pass Detail 与动态 QR 展示。
@@ -47,7 +48,6 @@ Check-in
 尚未实现或尚未接通：
 
 - Mobile Merchant Scanner、Wallet Binding 与 Mint 操作；
-- Ethereum Sepolia 部署地址与真实广播证据；
 
 因此后续任务应以完成 Vertical Slice 为目标，不能把骨架目录视为已交付能力。
 

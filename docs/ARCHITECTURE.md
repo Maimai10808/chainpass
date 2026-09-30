@@ -14,7 +14,7 @@
 - Web 已实现 Merchant 活动管理、公开活动、Claim、`/my-passes` 的钱包连接/签名绑定与 Mint 状态、用户 Pass 动态 QR，以及 `/merchant/check-in` 的手工/摄像头核验。
 - Mobile 已实现 Better Auth 登录注册、公开活动列表/详情、Claim、My Passes、Pass Detail 与服务端签发的动态 QR；Merchant Scanner、Wallet Binding 和 Mint 操作仍只在 Web 提供。
 - `@chainpass/api-client` 与 `@chainpass/schemas` 承载业务边界；`@chainpass/web3` 共享实际合约 ABI、Ethereum Sepolia 配置、地址规范化和 Pass Hash 规则。
-- Solidity `ChainPass` 是 issuer-only、non-transferable ERC-721，按 database Pass hash 防重复 Mint；已有 Foundry 测试、部署脚本和 ABI 同步脚本，但尚无 Ethereum Sepolia 部署地址或广播记录。
+- Solidity `ChainPass` 是 issuer-only、non-transferable ERC-721，按 database Pass hash 防重复 Mint；当前版本已部署至 Ethereum Sepolia，公开地址与广播记录见 `contracts/deployments/sepolia.json`。
 - `infra/docker-compose.yml` 当前只启动本地 PostgreSQL；Nginx、Web/API 容器与生产部署尚未实现。
 
 以上状态是后续实现的起点，不是目标能力已经交付的声明。
@@ -169,7 +169,7 @@ ChainPass Smart Contract
 Target EVM Network
 ```
 
-Ethereum Sepolia（chain ID `11155111`）是目标网络，地址和 RPC 由环境配置。仓库包含部署脚本并已通过本地 Anvil 集成验证，但没有 Ethereum Sepolia 部署地址或部署记录；在真实广播验证前不得声称已部署。
+Ethereum Sepolia（chain ID `11155111`）是目标网络，RPC 由环境配置。当前 `ChainPass` 地址为 `0xbA3e9bCbe448E928c5e71f4bE6415E7e0e3E5ABb`；部署交易、区块、deployer、源码验证与 smoke mint 证据统一记录在 `contracts/deployments/sepolia.json`，应用运行时从各自环境变量读取该地址。
 
 ## 6. 数据职责边界
 
@@ -227,9 +227,9 @@ apps/* ────> @chainpass/web3 ──> deployed contract interface
 
 ## 10. 尚待决策的集成问题
 
-Mint 的 MVP 决策已经落地：API issuer 支付 gas，database Pass ID 生成 `passHash`，receipt 一次确认后写回，合约映射承担最小恢复依据。后续仍需明确：
+Mint 的 MVP 决策已经落地：API issuer 支付 gas，database Pass ID 生成 `passHash`，receipt 一次确认后写回，合约映射承担最小恢复依据。Ethereum Sepolia 部署已由专用加密 keystore 完成，当前源码在 Sourcify 为 `exact_match`。后续仍需明确：
 
-1. Ethereum Sepolia 正式部署、地址发布、issuer key 托管与轮换责任。
+1. 生产环境 issuer key 的托管、访问审计与轮换责任。
 2. 进入长期运行后是否需要独立 pending 状态或事件索引器；三天 MVP 不预先引入。
 
 这些问题需要在实现对应 Vertical Slice 时做最小明确决策；不要先引入通用事件总线或复杂分布式架构。

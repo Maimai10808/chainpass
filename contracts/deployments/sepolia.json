@@ -1,0 +1,23 @@
+{
+  "network": "ethereum-sepolia",
+  "chainId": 11155111,
+  "contractAddress": "0xbA3e9bCbe448E928c5e71f4bE6415E7e0e3E5ABb",
+  "deploymentTxHash": "0xe43b47ae236313afc9052b3f47aaaf73a2b2a189aef2742d57f433136189641d",
+  "deployer": "0xECd97d9A3fee1a726B48fd6E2635949E40C097aC",
+  "blockNumber": 11813391,
+  "deployedAt": "2026-09-30T08:12:12Z",
+  "sourceVerification": {
+    "provider": "sourcify",
+    "status": "exact_match",
+    "jobId": "b2b83261-3635-4476-aca9-209512cf0936"
+  },
+  "smokeMint": {
+    "label": "chainpass-sepolia-deployment-smoke-20260930T081336Z",
+    "passHash": "0x11e985412359f473ce5762df5d0dd6c1a63a387826a682ed90f56ccbf93c57cb",
+    "tokenId": "1",
+    "recipient": "0xECd97d9A3fee1a726B48fd6E2635949E40C097aC",
+    "mintTxHash": "0x893322f054cd9999a7f656e57a76435a7ae5d2aa9fc0d063de6a02819a0006ee",
+    "blockNumber": 11813403,
+    "mintedAt": "2026-09-30T08:14:36Z"
+  }
+}

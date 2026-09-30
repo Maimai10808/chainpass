@@ -47,7 +47,7 @@ Check-in
 尚未实现或尚未接通：
 
 - Mobile Merchant Scanner、Wallet Binding 与 Mint 操作；
-- Base Sepolia 部署地址与真实广播证据；
+- Ethereum Sepolia 部署地址与真实广播证据；
 
 因此后续任务应以完成 Vertical Slice 为目标，不能把骨架目录视为已交付能力。
 

@@ -6,12 +6,12 @@ import {
   type Hash,
   type Hex,
 } from "viem";
-import { baseSepolia } from "viem/chains";
+import { sepolia } from "viem/chains";
 
 export { chainPassAbi } from "@chainpass/web3/abi";
 
-export const CHAINPASS_BASE_SEPOLIA_CHAIN_ID = 84_532;
-export const chainPassBaseSepolia = baseSepolia;
+export const CHAINPASS_SEPOLIA_CHAIN_ID = sepolia.id;
+export const chainPassSepolia = sepolia;
 
 export function canonicalizeEvmAddress(address: string): Address {
   return getAddress(address);
@@ -25,9 +25,18 @@ export function getTransactionExplorerUrl(
   chainId: number,
   transactionHash: Hash,
 ): string | null {
-  if (chainId !== CHAINPASS_BASE_SEPOLIA_CHAIN_ID) return null;
+  if (chainId !== CHAINPASS_SEPOLIA_CHAIN_ID) return null;
 
-  return `${baseSepolia.blockExplorers.default.url}/tx/${transactionHash}`;
+  return `${sepolia.blockExplorers.default.url}/tx/${transactionHash}`;
+}
+
+export function getAddressExplorerUrl(
+  chainId: number,
+  address: Address,
+): string | null {
+  if (chainId !== CHAINPASS_SEPOLIA_CHAIN_ID) return null;
+
+  return `${sepolia.blockExplorers.default.url}/address/${address}`;
 }
 
 export type { Address, Hash, Hex };

@@ -1,7 +1,7 @@
 "use client";
 
 import { ApiClientError, type WalletView } from "@chainpass/api-client";
-import { CHAINPASS_BASE_SEPOLIA_CHAIN_ID } from "@chainpass/web3";
+import { CHAINPASS_SEPOLIA_CHAIN_ID } from "@chainpass/web3";
 import { useState } from "react";
 import {
   useAccount,
@@ -67,10 +67,10 @@ export function WalletPanel({
     }
   }
 
-  async function switchToBaseSepolia() {
+  async function switchToSepolia() {
     setError(null);
     try {
-      await switchChainAsync({ chainId: CHAINPASS_BASE_SEPOLIA_CHAIN_ID });
+      await switchChainAsync({ chainId: CHAINPASS_SEPOLIA_CHAIN_ID });
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -138,17 +138,17 @@ export function WalletPanel({
             </p>
           ) : null}
 
-          {!wallet && chainId !== CHAINPASS_BASE_SEPOLIA_CHAIN_ID ? (
+          {!wallet && chainId !== CHAINPASS_SEPOLIA_CHAIN_ID ? (
             <button
               className="mt-4 rounded-lg border border-zinc-300 bg-white px-4 py-2 font-medium"
-              onClick={() => void switchToBaseSepolia()}
+              onClick={() => void switchToSepolia()}
               type="button"
             >
-              Switch to Base Sepolia
+              Switch to Ethereum Sepolia
             </button>
           ) : null}
 
-          {!wallet && chainId === CHAINPASS_BASE_SEPOLIA_CHAIN_ID ? (
+          {!wallet && chainId === CHAINPASS_SEPOLIA_CHAIN_ID ? (
             <button
               className="mt-4 rounded-lg bg-blue-700 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
               disabled={isBinding}

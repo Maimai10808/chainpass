@@ -10,7 +10,10 @@ import type {
   WalletChallengeResponse,
   WalletView,
 } from '@chainpass/schemas';
-import { canonicalizeEvmAddress } from '@chainpass/web3';
+import {
+  CHAINPASS_SEPOLIA_CHAIN_ID,
+  canonicalizeEvmAddress,
+} from '@chainpass/web3';
 import { recoverMessageAddress, type Hex } from 'viem';
 
 import { prisma } from '../database/prisma.js';
@@ -30,7 +33,7 @@ export class WalletsService {
     if (input.chainId !== expectedChainId) {
       throw new BadRequestException({
         code: 'UNSUPPORTED_CHAIN',
-        message: `Connect a wallet on chain ${expectedChainId}`,
+        message: `Connect a wallet on Ethereum Sepolia (chain ${expectedChainId})`,
       });
     }
 
@@ -207,7 +210,7 @@ export class WalletsService {
   }
 
   private getChainId(): number {
-    const chainId = Number(process.env.CHAIN_ID ?? '84532');
+    const chainId = Number(process.env.CHAIN_ID ?? CHAINPASS_SEPOLIA_CHAIN_ID);
     if (!Number.isSafeInteger(chainId) || chainId <= 0) {
       throw new Error('CHAIN_ID must be a positive integer');
     }

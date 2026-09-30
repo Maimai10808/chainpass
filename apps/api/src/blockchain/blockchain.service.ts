@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import {
+  CHAINPASS_SEPOLIA_CHAIN_ID,
   canonicalizeEvmAddress,
   chainPassAbi,
   createPassHash,
@@ -20,6 +21,7 @@ import {
   parseEventLogs,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { sepolia } from 'viem/chains';
 
 export interface OnChainMintResult {
   chainId: number;
@@ -276,12 +278,15 @@ export class BlockchainService {
       chainId,
       contractAddress,
       rpcUrl,
-      chain: defineChain({
-        id: chainId,
-        name: chainId === 84532 ? 'Base Sepolia' : `Chain ${chainId}`,
-        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-        rpcUrls: { default: { http: [rpcUrl] } },
-      }),
+      chain:
+        chainId === CHAINPASS_SEPOLIA_CHAIN_ID
+          ? sepolia
+          : defineChain({
+              id: chainId,
+              name: `Local EVM ${chainId}`,
+              nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+              rpcUrls: { default: { http: [rpcUrl] } },
+            }),
     };
   }
 }

@@ -35,18 +35,22 @@ DEPLOYER_PRIVATE_KEY=<anvil-private-key> \
   --broadcast
 ```
 
-## Base Sepolia
+## Ethereum Sepolia
 
-The deployment script never hardcodes a private key. A Base Sepolia broadcast
+The deployment script never hardcodes a private key. An Ethereum Sepolia broadcast
 requires a funded issuer and developer-provided secrets:
 
 ```bash
-BASE_SEPOLIA_RPC_URL=<rpc-url> \
+SEPOLIA_RPC_URL=<rpc-url> \
 DEPLOYER_PRIVATE_KEY=<issuer-private-key> \
   forge script script/DeployChainPass.s.sol:DeployChainPass \
-  --rpc-url "$BASE_SEPOLIA_RPC_URL" \
+  --rpc-url "$SEPOLIA_RPC_URL" \
   --broadcast
 ```
+
+Ethereum Sepolia uses chain ID `11155111`. Supply the RPC URL through the
+environment; `https://ethereum-sepolia-rpc.publicnode.com` is only an optional
+public development example.
 
 Do not commit private keys, RPC credentials, broadcast artifacts, or local
 Foundry build output.

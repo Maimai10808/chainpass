@@ -1,5 +1,6 @@
 import { type INestApplication } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { CHAINPASS_SEPOLIA_CHAIN_ID } from '@chainpass/web3';
 import { randomBytes } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types';
@@ -492,7 +493,7 @@ describe('Merchant pass verification and check-in', () => {
       data: {
         userId: holder.userId,
         address: `0x${randomBytes(20).toString('hex')}`,
-        chainId: 84532,
+        chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
         verifiedAt: new Date(),
       },
     });
@@ -503,7 +504,7 @@ describe('Merchant pass verification and check-in', () => {
         tokenId: '42',
         mintTxHash: `0x${randomBytes(32).toString('hex')}`,
         contractAddress: `0x${randomBytes(20).toString('hex')}`,
-        chainId: 84532,
+        chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
       },
     });
 
@@ -524,7 +525,7 @@ describe('Merchant pass verification and check-in', () => {
       data: {
         userId: holder.userId,
         address: `0x${randomBytes(20).toString('hex')}`,
-        chainId: 84532,
+        chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
         verifiedAt: new Date(),
       },
     });
@@ -535,7 +536,7 @@ describe('Merchant pass verification and check-in', () => {
         tokenId: '43',
         mintTxHash: `0x${randomBytes(32).toString('hex')}`,
         contractAddress: `0x${randomBytes(20).toString('hex')}`,
-        chainId: 84532,
+        chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
       },
     });
 

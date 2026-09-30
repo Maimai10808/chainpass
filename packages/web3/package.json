@@ -8,6 +8,7 @@
     "./abi": "./src/chainpass-abi.ts"
   },
   "scripts": {
+    "test": "node --test src/index.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

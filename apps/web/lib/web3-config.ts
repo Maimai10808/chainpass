@@ -1,13 +1,13 @@
 "use client";
 
 import { createAppKit, type AppKit } from "@reown/appkit/react";
-import { baseSepolia } from "@reown/appkit/networks";
+import { sepolia } from "@reown/appkit/networks";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { createConfig, http } from "wagmi";
 import { injected } from "wagmi/connectors";
 
 const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID?.trim();
-const networks = [baseSepolia] as const;
+const networks = [sepolia] as const;
 const metadata = {
   name: "ChainPass",
   description: "Verify and mint ChainPass event passes",
@@ -24,7 +24,7 @@ export const wagmiConfig =
   createConfig({
     chains: networks,
     connectors: [injected()],
-    transports: { [baseSepolia.id]: http() },
+    transports: { [sepolia.id]: http() },
     ssr: true,
   });
 

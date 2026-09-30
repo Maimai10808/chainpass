@@ -3,6 +3,7 @@ import {
   type INestApplication,
 } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { CHAINPASS_SEPOLIA_CHAIN_ID } from '@chainpass/web3';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
@@ -39,7 +40,7 @@ describe('Pass minting', () => {
 
       mintCounter += 1;
       return {
-        chainId: 84532,
+        chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
         contractAddress,
         recovered: false,
         tokenId: String(mintCounter),
@@ -95,7 +96,7 @@ describe('Pass minting', () => {
         tokenId: expect.any(String),
         mintTxHash: expect.stringMatching(/^0x[0-9a-f]{64}$/),
         contractAddress,
-        chainId: 84532,
+        chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
         onChainStatus: 'ON_CHAIN_VERIFIED',
       },
     });
@@ -108,7 +109,7 @@ describe('Pass minting', () => {
       tokenId: response.body.pass.tokenId,
       mintTxHash: response.body.pass.mintTxHash,
       contractAddress,
-      chainId: 84532,
+      chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
     });
   });
 
@@ -231,7 +232,12 @@ describe('Pass minting', () => {
   async function bindWallet(userId: string) {
     const address = privateKeyToAccount(generatePrivateKey()).address;
     await prisma.wallet.create({
-      data: { userId, address, chainId: 84532, verifiedAt: new Date() },
+      data: {
+        userId,
+        address,
+        chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
+        verifiedAt: new Date(),
+      },
     });
     return address;
   }

@@ -17,7 +17,7 @@ export class CreateWalletChallengeDto implements CreateWalletChallengeInput {
   @ApiProperty({ example: '0x1234567890123456789012345678901234567890' })
   address!: string;
 
-  @ApiProperty({ example: 84532 })
+  @ApiProperty({ example: 11155111 })
   chainId!: number;
 }
 
@@ -39,7 +39,7 @@ export class WalletChallengeResponseDto implements WalletChallengeResponse {
   @ApiProperty()
   address!: string;
 
-  @ApiProperty({ example: 84532 })
+  @ApiProperty({ example: 11155111 })
   chainId!: number;
 
   @ApiProperty()
@@ -56,7 +56,7 @@ export class WalletViewDto implements WalletView {
   @ApiProperty()
   address!: string;
 
-  @ApiProperty({ example: 84532 })
+  @ApiProperty({ example: 11155111 })
   chainId!: number;
 
   @ApiProperty({ format: 'date-time' })

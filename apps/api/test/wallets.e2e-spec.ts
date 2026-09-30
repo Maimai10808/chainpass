@@ -1,5 +1,6 @@
 import { type INestApplication } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { CHAINPASS_SEPOLIA_CHAIN_ID } from '@chainpass/web3';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
@@ -14,7 +15,7 @@ describe('Wallet binding', () => {
   const testEmailPrefix = `wallet-binding-e2e-${runId}`;
 
   beforeAll(async () => {
-    process.env.CHAIN_ID = '84532';
+    process.env.CHAIN_ID = String(CHAINPASS_SEPOLIA_CHAIN_ID);
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -35,7 +36,7 @@ describe('Wallet binding', () => {
 
     await request(app.getHttpServer())
       .post('/wallets/challenge')
-      .send({ address: account.address, chainId: 84532 })
+      .send({ address: account.address, chainId: CHAINPASS_SEPOLIA_CHAIN_ID })
       .expect(401);
   });
 
@@ -70,7 +71,7 @@ describe('Wallet binding', () => {
 
     expect(verified.body).toMatchObject({
       address: account.address,
-      chainId: 84532,
+      chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
     });
 
     const currentWallet = await request(app.getHttpServer())
@@ -196,7 +197,7 @@ describe('Wallet binding', () => {
       .set('Cookie', user.cookie)
       .send({
         address: account.address,
-        chainId: 84532,
+        chainId: CHAINPASS_SEPOLIA_CHAIN_ID,
         userId: 'client-controlled-user-id',
       });
 
@@ -230,7 +231,7 @@ describe('Wallet binding', () => {
     const response = await request(app.getHttpServer())
       .post('/wallets/challenge')
       .set('Cookie', cookie)
-      .send({ address, chainId: 84532 })
+      .send({ address, chainId: CHAINPASS_SEPOLIA_CHAIN_ID })
       .expect(201);
 
     return response.body as { id: string; message: string };

@@ -40,7 +40,7 @@ Check-in
 - Publish Event + User Browse Event Vertical Slice：发布规则、Draft 公开隔离、公开活动列表/详情、ACTIVE TicketType 与服务端剩余量视图。
 - User Claim Pass + My Passes Vertical Slice：Pass 模型、原子库存扣减、重复领取约束、Claim API 与 Web 持票列表。
 - Wallet Binding + Blockchain Mint Vertical Slice：签名 challenge、单 Wallet 绑定、issuer-only non-transferable ERC-721、Anvil 集成、链/DB 恢复与 Web Mint 状态。
-- Ethereum Sepolia Deployment：`ChainPass` 已部署至 chain ID `11155111`，完成 bytecode/owner/ERC-721 metadata 读取、Sourcify 精确匹配验证与真实 smoke mint；公开证据记录于 `contracts/deployments/sepolia.json`。
+- Ethereum Sepolia Deployment：`ChainPass` 已部署至 chain ID `11155111`，完成 bytecode/owner/ERC-721 metadata 读取、Sourcify 精确匹配验证、真实 smoke mint，以及经 Better Auth、Wallet Binding、NestJS Mint API 与 PostgreSQL 回写的 application-level mint E2E；部署公开证据记录于 `contracts/deployments/sepolia.json`。
 - Merchant Verify / Check-in Vertical Slice：Event Ownership 核验、只读 Pass Verify、原子 CheckIn、防并发重复核销与 Merchant Web 操作页。
 - Dynamic QR Verification Vertical Slice：短时 HMAC Credential、用户动态 QR、Merchant 摄像头扫描，以及复用既有 Verify/Check-in。
 - Mobile User Experience Vertical Slice：Better Auth Expo/SecureStore 登录、公开活动浏览、Claim、My Passes、Pass Detail 与动态 QR 展示。
@@ -91,7 +91,7 @@ Done
 3. Event List / Detail：发布状态与用户可见范围。**已完成**
 4. User Claim Pass：Session owner、库存/重复领取约束和 Pass 记录。**已完成**
 5. My Passes：仅返回当前用户可见 Pass。**已完成**
-6. Blockchain Mint：明确 signer、网络、ID 映射、交易状态和失败处理后接入。**已完成（本地 Anvil）**
+6. Blockchain Mint：明确 signer、网络、ID 映射、交易状态和失败处理后接入。**已完成（本地 Anvil + Ethereum Sepolia Application E2E）**
 7. Pass On-chain Verification：展示可核对的 chain、contract、token 与 transaction 信息。**已完成**
 8. Merchant Verify / Check-in：权限、活动 Ownership、防重复核销和状态更新。**已完成**
 9. QR Code：只编码不可伪造或可服务端验证的最小凭证，不承载可信业务状态。**已完成（Web）**

@@ -1,21 +1,32 @@
 import {
   createEventInputSchema,
   createTicketTypeInputSchema,
+  createWalletChallengeInputSchema,
   claimPassResultSchema,
   eventResponseSchema,
+  mintPassResultSchema,
+  myWalletResponseSchema,
   publicEventDetailSchema,
   publicEventListSchema,
   myPassesResponseSchema,
   ticketTypeListResponseSchema,
   ticketTypeResponseSchema,
+  verifyWalletInputSchema,
+  walletChallengeResponseSchema,
+  walletViewSchema,
   type CreateEventInput,
   type CreateTicketTypeInput,
   type ClaimPassResult,
+  type CreateWalletChallengeInput,
   type EventResponse,
   type PublicEventDetail,
   type PublicEventSummary,
   type PassView,
+  type MintPassResult,
   type TicketTypeResponse,
+  type VerifyWalletInput,
+  type WalletChallengeResponse,
+  type WalletView,
 } from "@chainpass/schemas";
 
 export interface ChainPassApiClientOptions {
@@ -137,6 +148,72 @@ export function createApiClient(options: ChainPassApiClientOptions) {
       return myPassesResponseSchema.parse(await response.json());
     },
 
+    async createWalletChallenge(
+      input: CreateWalletChallengeInput,
+    ): Promise<WalletChallengeResponse> {
+      const payload = createWalletChallengeInputSchema.parse(input);
+      const response = await fetcher(`${baseUrl}/wallets/challenge`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return walletChallengeResponseSchema.parse(await response.json());
+    },
+
+    async verifyWallet(input: VerifyWalletInput): Promise<WalletView> {
+      const payload = verifyWalletInputSchema.parse(input);
+      const response = await fetcher(`${baseUrl}/wallets/verify`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return walletViewSchema.parse(await response.json());
+    },
+
+    async getMyWallet(): Promise<WalletView | null> {
+      const response = await fetcher(`${baseUrl}/wallets/me`, {
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return myWalletResponseSchema.parse(await response.json());
+    },
+
+    async mintPass(passId: string): Promise<MintPassResult> {
+      const response = await fetcher(
+        `${baseUrl}/passes/${encodeURIComponent(passId)}/mint`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return mintPassResultSchema.parse(await response.json());
+    },
+
     async createTicketType(
       eventId: string,
       input: CreateTicketTypeInput,
@@ -210,9 +287,14 @@ export type {
   CreateEventInput,
   CreateTicketTypeInput,
   ClaimPassResult,
+  CreateWalletChallengeInput,
   EventResponse,
   PublicEventDetail,
   PublicEventSummary,
   PassView,
+  MintPassResult,
   TicketTypeResponse,
+  VerifyWalletInput,
+  WalletChallengeResponse,
+  WalletView,
 } from "@chainpass/schemas";

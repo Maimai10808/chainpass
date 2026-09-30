@@ -1,5 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import type { ClaimPassResult, PassView } from '@chainpass/schemas';
+import type {
+  ClaimPassResult,
+  MintPassResult,
+  PassView,
+} from '@chainpass/schemas';
 
 type PassEvent = PassView['event'];
 type PassTicketType = PassView['ticketType'];
@@ -51,6 +55,12 @@ export class PassViewDto implements PassView {
   @ApiProperty({ type: String, nullable: true })
   contractAddress!: string | null;
 
+  @ApiProperty({ type: Number, nullable: true })
+  chainId!: number | null;
+
+  @ApiProperty({ enum: ['OFF_CHAIN', 'ON_CHAIN_VERIFIED'] })
+  onChainStatus!: 'OFF_CHAIN' | 'ON_CHAIN_VERIFIED';
+
   @ApiProperty({ format: 'date-time' })
   createdAt!: string;
 
@@ -67,4 +77,15 @@ export class ClaimPassResultDto implements ClaimPassResult {
 
   @ApiProperty({ description: 'Ticket inventory remaining after the claim' })
   remaining!: number;
+}
+
+export class MintPassResultDto implements MintPassResult {
+  @ApiProperty({ type: PassViewDto })
+  pass!: PassViewDto;
+
+  @ApiProperty({
+    description:
+      'True when an existing on-chain mint was recovered into PostgreSQL',
+  })
+  recovered!: boolean;
 }

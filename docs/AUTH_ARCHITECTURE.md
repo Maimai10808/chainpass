@@ -513,11 +513,11 @@ apps/web/lib/auth-client.ts
 当前导出：
 
 ```ts
-authClient
-signIn
-signUp
-signOut
-useSession
+authClient;
+signIn;
+signUp;
+signOut;
+useSession;
 ```
 
 因此 Web 页面应优先通过这些能力获取 Authentication 状态。
@@ -531,10 +531,10 @@ const { data: session } = useSession();
 然后：
 
 ```ts
-session.user.id
-session.user.name
-session.user.email
-session.user.role
+session.user.id;
+session.user.name;
+session.user.email;
+session.user.role;
 ```
 
 获取当前用户信息。
@@ -600,7 +600,7 @@ fetch("/api/login")
 Web 使用：
 
 ```ts
-useSession()
+useSession();
 ```
 
 读取：
@@ -703,13 +703,13 @@ signIn.email(...)
 读取 Session：
 
 ```ts
-useSession()
+useSession();
 ```
 
 退出：
 
 ```ts
-signOut()
+signOut();
 ```
 
 因此：
@@ -1006,6 +1006,8 @@ Better Auth User
 > Better Auth User 是主体。
 >
 > Wallet 是这个 User 关联的一种身份 / Web3 Account。
+
+当前 Wallet Binding 不提供 Wallet Login，也不改变 Session 来源。已登录用户必须先向 API 请求绑定当前 `User.id`、地址、chain ID、nonce 和过期时间的一次性 challenge，再由钱包签名；API 验签、校验未过期/未使用后才写入一对一 Wallet。连接状态不能替代 verified binding，客户端也不能提交目标 `userId`。
 
 ---
 

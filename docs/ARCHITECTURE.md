@@ -9,11 +9,11 @@
 截至当前仓库状态：
 
 - Monorepo、Next.js、NestJS、Expo、Foundry、PostgreSQL 与四个共享包的目录已经建立。
-- Better Auth 已接入 API、Web 与 Mobile；Prisma 在现有 Auth 模型上增加了关联 Better Auth `User` 的 `Event`、关联 `Event` 的 MVP `TicketType`，以及关联 User/Event/TicketType 的 `Pass`。
-- API 已实现 Create Event、Merchant Issue TicketType、Publish Event、Public Event Discovery、Claim Pass 与 My Passes Vertical Slice，并在 `/docs` 与 `/docs/openapi.json` 暴露 Swagger/OpenAPI Contract；Blockchain Mint、CheckIn 业务模块尚未实现。
-- Web 已实现 Merchant 活动管理、公开活动列表/详情、Claim Pass 与 `/my-passes`；Blockchain Mint 之后的票务主流程和 Mobile 业务 UI 尚未实现。
-- `@chainpass/api-client` 与 `@chainpass/schemas` 已承载 Event/TicketType Contract 并由 Web/API 消费；`@chainpass/web3` 入口仍为空。
-- Solidity 合约已有早期 ERC-721 `ChainPass`，支持创建链上 Event、钱包自助 Claim/Mint 和 Organizer Check-in；尚无测试、部署脚本、部署地址、ABI 发布或应用集成。
+- Better Auth 已接入 API、Web 与 Mobile；Prisma 在唯一的 Better Auth `User` 上关联 Event、Pass、一个已验证 Wallet 及短期 Wallet Challenge。
+- API 已实现 Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding 与 Blockchain Mint，并在 `/docs` 与 `/docs/openapi.json` 暴露 Swagger/OpenAPI Contract；CheckIn 尚未实现。
+- Web 已实现 Merchant 活动管理、公开活动、Claim、`/my-passes` 的钱包连接/签名绑定与 Mint 状态；Mobile 业务 UI 尚未实现。
+- `@chainpass/api-client` 与 `@chainpass/schemas` 承载业务边界；`@chainpass/web3` 共享实际合约 ABI、Base Sepolia 配置、地址规范化和 Pass Hash 规则。
+- Solidity `ChainPass` 是 issuer-only、non-transferable ERC-721，按 database Pass hash 防重复 Mint；已有 Foundry 测试、部署脚本和 ABI 同步脚本，但尚无 Base Sepolia 部署地址或广播记录。
 - `infra/docker-compose.yml` 当前只启动本地 PostgreSQL；Nginx、Web/API 容器与生产部署尚未实现。
 
 以上状态是后续实现的起点，不是目标能力已经交付的声明。
@@ -130,12 +130,12 @@ Prisma
 PostgreSQL
 ```
 
-Create Event、Issue TicketType、Publish Event、Public Event Discovery、Claim Pass 与 My Passes 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
+Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding 与 Mint 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
 
-链上数据流目标：
+当前链上数据流：
 
 ```text
-NestJS Blockchain Integration / authorized Web3 UI
+NestJS Blockchain Service / platform issuer wallet
     ↓
 @chainpass/web3 configuration
     ↓
@@ -144,7 +144,7 @@ ChainPass Smart Contract
 Target EVM Network
 ```
 
-Base Sepolia 是本阶段预期目标网络，但仓库当前没有 chain ID、RPC、部署脚本、合约地址或部署记录。相关信息写入 `@chainpass/web3` 并经过部署验证前，不得声称已部署到 Base Sepolia。
+Base Sepolia（chain ID `84532`）是目标网络，地址和 RPC 由环境配置。仓库包含部署脚本并已通过本地 Anvil 集成验证，但没有 Base Sepolia 部署地址或部署记录；在真实广播验证前不得声称已部署。
 
 ## 6. 数据职责边界
 
@@ -152,7 +152,7 @@ PostgreSQL/NestJS 是完整业务数据的 Source of Truth，负责用户关联�
 
 Blockchain 是可信资产层，负责 Pass 的链上 Token Identity、钱包 Ownership 与选择性的 Verification 记录。链上事件不是用户资料、运营字段或完整工作流状态的替代品。
 
-当前合约同时保存链上 Event、mint 数量与 check-in 标记，这是早期合约实现。接入业务前必须明确数据库与链上的字段映射、写入顺序、失败补偿和状态对账；在决策完成前，不把两个来源都描述为同一字段的权威来源。
+每个 database Pass 通过 `keccak256(Pass.id)` 得到稳定 `passHash`，合约保存 `passHash → tokenId`。API 在 receipt 成功、解析 `PassMinted` 并验证 `ownerOf` 后写入 `chainId`、`contractAddress`、`tokenId` 和 `mintTxHash`；若链成功而数据库写入失败，重试会从合约映射和事件恢复，不会再次 Mint。
 
 ## 7. Authentication 数据流
 
@@ -174,7 +174,7 @@ Better Auth `User` 是业务身份主体；Wallet 是可关联的身份/账户�
 
 ## 8. Contracts 与 Infra
 
-`contracts` 使用 Solidity 0.8.28、Foundry 和 OpenZeppelin。当前 `ChainPass.sol` 是 ERC-721 合约原型，应用层尚未集成。合约不依赖 `apps/*`；经确认的 ABI 和地址由构建/部署流程同步到 `@chainpass/web3`，不在各应用复制。
+`contracts` 使用 Solidity 0.8.28、Foundry 和 OpenZeppelin。`ChainPass.sol` 由合约 owner 作为平台 issuer，按 Pass hash 唯一 Mint，并暂时禁止 transfer 以保持链上 owner 与 `Pass.ownerId` 一致。构建后的 ABI 由 `pnpm web3:sync-abi` 同步到 `@chainpass/web3`；private key 只存在 API/Foundry 服务端环境。
 
 `infra` 当前只定义 PostgreSQL 17 的本地 Docker Compose 服务。Web、API、Nginx 或集群部署属于后续增量；三天 MVP 阶段以可重复的单体 API + PostgreSQL + 客户端部署为目标，不预先设计集群、服务网格或消息基础设施。
 
@@ -202,12 +202,10 @@ apps/* ────> @chainpass/web3 ──> deployed contract interface
 
 ## 10. 尚待决策的集成问题
 
-进入 Mint/Verify/Check-in Vertical Slice 前需要明确：
+Mint 的 MVP 决策已经落地：API issuer 支付 gas，database Pass ID 生成 `passHash`，receipt 一次确认后写回，合约映射承担最小恢复依据。后续仍需明确：
 
-1. 交易由用户钱包签名、商家钱包签名，还是 API relayer/signer 提交；私钥与 gas 责任随该决策确定。
-2. 数据库 Event/TicketType/Pass ID 如何映射到当前合约的 `eventId`/`tokenId`，尤其是当前合约没有 TicketType 概念。
-3. DB 写入与链上交易的状态机、失败重试、幂等键、交易确认数和对账策略。
-4. Check-in 以数据库状态为准还是要求同步上链，以及当前合约仅允许 organizer 地址调用如何对应 Better Auth merchant。
-5. Base Sepolia 的部署流程、地址发布与环境配置所有权。
+1. Check-in 以数据库状态为准还是要求同步上链，以及 merchant 权限如何映射到链上能力。
+2. Base Sepolia 正式部署、地址发布、issuer key 托管与轮换责任。
+3. 进入长期运行后是否需要独立 pending 状态或事件索引器；三天 MVP 不预先引入。
 
 这些问题需要在实现对应 Vertical Slice 时做最小明确决策；不要先引入通用事件总线或复杂分布式架构。

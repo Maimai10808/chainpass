@@ -1,33 +1,16 @@
 import { createAccessControl } from 'better-auth/plugins/access';
-import {
-  adminAc,
-  defaultStatements,
-} from 'better-auth/plugins/admin/access';
+import { adminAc, defaultStatements } from 'better-auth/plugins/admin/access';
 
 export const statements = {
   ...defaultStatements,
 
-  event: [
-    'create',
-    'read',
-    'update',
-    'delete',
-    'publish',
-  ],
+  event: ['create', 'read', 'update', 'delete', 'publish'],
 
-  pass: [
-    'claim',
-    'read',
-    'verify',
-    'check-in',
-    'revoke',
-  ],
+  pass: ['claim', 'read', 'mint', 'verify', 'check-in', 'revoke'],
 
-  merchant: [
-    'read',
-    'approve',
-    'suspend',
-  ],
+  merchant: ['read', 'approve', 'suspend'],
+
+  wallet: ['bind', 'read'],
 } as const;
 
 export const ac = createAccessControl(statements);
@@ -40,27 +23,13 @@ export const ac = createAccessControl(statements);
 export const adminRole = ac.newRole({
   ...adminAc.statements,
 
-  event: [
-    'create',
-    'read',
-    'update',
-    'delete',
-    'publish',
-  ],
+  event: ['create', 'read', 'update', 'delete', 'publish'],
 
-  pass: [
-    'claim',
-    'read',
-    'verify',
-    'check-in',
-    'revoke',
-  ],
+  pass: ['claim', 'read', 'mint', 'verify', 'check-in', 'revoke'],
 
-  merchant: [
-    'read',
-    'approve',
-    'suspend',
-  ],
+  merchant: ['read', 'approve', 'suspend'],
+
+  wallet: ['bind', 'read'],
 });
 
 /**
@@ -69,21 +38,13 @@ export const adminRole = ac.newRole({
  * Can create and manage events and verify/check-in passes.
  */
 export const merchantRole = ac.newRole({
-  event: [
-    'create',
-    'read',
-    'update',
-    'delete',
-    'publish',
-  ],
+  event: ['create', 'read', 'update', 'delete', 'publish'],
 
-  pass: [
-    'read',
-    'verify',
-    'check-in',
-  ],
+  pass: ['read', 'verify', 'check-in'],
 
   merchant: [],
+
+  wallet: ['bind', 'read'],
 });
 
 /**
@@ -92,16 +53,13 @@ export const merchantRole = ac.newRole({
  * Can browse events, claim passes and view their passes.
  */
 export const userRole = ac.newRole({
-  event: [
-    'read',
-  ],
+  event: ['read'],
 
-  pass: [
-    'claim',
-    'read',
-  ],
+  pass: ['claim', 'read', 'mint'],
 
   merchant: [],
+
+  wallet: ['bind', 'read'],
 });
 
 export const roles = {

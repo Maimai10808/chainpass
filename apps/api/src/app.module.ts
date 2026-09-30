@@ -7,6 +7,7 @@ import { auth } from './auth/auth.js';
 import { EventsModule } from './events/events.module.js';
 import { PassesModule } from './passes/passes.module.js';
 import { TicketTypesModule } from './ticket-types/ticket-types.module.js';
+import { WalletsModule } from './wallets/wallets.module.js';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { TicketTypesModule } from './ticket-types/ticket-types.module.js';
     EventsModule,
     TicketTypesModule,
     PassesModule,
+    WalletsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

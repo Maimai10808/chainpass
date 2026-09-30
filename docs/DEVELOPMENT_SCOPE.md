@@ -39,14 +39,15 @@ Check-in
 - Merchant Issue TicketType Vertical Slice：TicketType 模型、容量/金额约束、Ownership 授权、创建/列表 API、共享 Client 与 Event 管理页。
 - Publish Event + User Browse Event Vertical Slice：发布规则、Draft 公开隔离、公开活动列表/详情、ACTIVE TicketType 与服务端剩余量视图。
 - User Claim Pass + My Passes Vertical Slice：Pass 模型、原子库存扣减、重复领取约束、Claim API 与 Web 持票列表。
+- Wallet Binding + Blockchain Mint Vertical Slice：签名 challenge、单 Wallet 绑定、issuer-only non-transferable ERC-721、Anvil 集成、链/DB 恢复与 Web Mint 状态。
 
 尚未实现或尚未接通：
 
 - CheckIn Prisma 业务模型；
 - 对应的后续 NestJS 业务模块、DTO、授权与测试；
-- Blockchain Mint 之后的 Web 主流程与全部 Mobile 票务 UI；
-- ABI/地址发布、Base Sepolia 部署证据和应用链上集成；
-- DB 与链上交易的状态协调。
+- 全部 Mobile 票务 UI；
+- Base Sepolia 部署地址与真实广播证据；
+- Check-in、QR 与其数据库/链上状态协调。
 
 因此后续任务应以完成 Vertical Slice 为目标，不能把骨架目录视为已交付能力。
 
@@ -58,6 +59,7 @@ Check-in
 - `Event`：活动与 organizer 关系；
 - `TicketType`：票种、容量/库存语义；
 - `Pass`：领取、持有、Mint 与当前业务状态；
+- `Wallet`：Better Auth User 唯一的 canonical、已验证链上地址；
 - `CheckIn`：核验/核销记录与防重依据。
 
 必要的 Wallet 关联、交易记录或 outbox-like 状态只有在 Mint/Check-in Slice 的一致性设计明确需要时才加入，并保持最小。未经讨论不扩展大量 Domain Entity，也不创建第二套 User/MerchantUser/WalletUser。
@@ -89,8 +91,8 @@ Done
 3. Event List / Detail：发布状态与用户可见范围。**已完成**
 4. User Claim Pass：Session owner、库存/重复领取约束和 Pass 记录。**已完成**
 5. My Passes：仅返回当前用户可见 Pass。**已完成**
-6. Blockchain Mint：明确 signer、网络、ID 映射、交易状态和失败处理后接入。
-7. Pass On-chain Verification：展示可核对的 chain、contract、token 与 transaction 信息。
+6. Blockchain Mint：明确 signer、网络、ID 映射、交易状态和失败处理后接入。**已完成（本地 Anvil）**
+7. Pass On-chain Verification：展示可核对的 chain、contract、token 与 transaction 信息。**已完成**
 8. Merchant Verify / Check-in：权限、活动 Ownership、防重复核销和状态更新。
 9. QR Code：只编码不可伪造或可服务端验证的最小凭证，不承载可信业务状态。
 10. Mobile UX：覆盖用户领取、My Pass、二维码和必要 Scanner 流程。

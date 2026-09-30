@@ -1,10 +1,16 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { ClaimPassResult, PassView } from '@chainpass/schemas';
+import type {
+  ClaimPassResult,
+  MintPassResult,
+  PassView,
+} from '@chainpass/schemas';
 
+import { BlockchainService } from '../blockchain/blockchain.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { prisma } from '../lib/prisma.js';
 
@@ -14,6 +20,8 @@ type PassWithDetails = Prisma.PassGetPayload<{
 
 @Injectable()
 export class PassesService {
+  constructor(private readonly blockchainService: BlockchainService) {}
+
   async claim(ticketTypeId: string, ownerId: string): Promise<ClaimPassResult> {
     try {
       return await prisma.$transaction(async (transaction) => {
@@ -117,6 +125,83 @@ export class PassesService {
     return passes.map((pass) => this.toView(pass));
   }
 
+  async mint(passId: string, ownerId: string): Promise<MintPassResult> {
+    return prisma.$transaction(
+      async (transaction) => {
+        await transaction.$queryRaw<Array<{ locked: boolean }>>`
+          SELECT pg_advisory_xact_lock(hashtextextended(${passId}, 0)) IS NULL AS locked
+        `;
+
+        const pass = await transaction.pass.findUnique({
+          where: { id: passId },
+          include: {
+            event: true,
+            ticketType: true,
+            owner: { include: { wallet: true } },
+          },
+        });
+
+        if (!pass) {
+          throw new NotFoundException({
+            code: 'PASS_NOT_FOUND',
+            message: 'Pass not found',
+          });
+        }
+
+        if (pass.ownerId !== ownerId) {
+          throw new ForbiddenException({
+            code: 'PASS_NOT_OWNED',
+            message: 'You can only mint your own pass',
+          });
+        }
+
+        if (pass.status !== 'ACTIVE') {
+          throw new ConflictException({
+            code: 'PASS_NOT_ACTIVE',
+            message: 'Only an active pass can be minted',
+          });
+        }
+
+        if (!pass.owner.wallet) {
+          throw new ConflictException({
+            code: 'WALLET_NOT_BOUND',
+            message: 'Bind and verify a wallet before minting',
+          });
+        }
+
+        if (
+          pass.tokenId &&
+          pass.mintTxHash &&
+          pass.contractAddress &&
+          pass.chainId
+        ) {
+          return { pass: this.toView(pass), recovered: false };
+        }
+
+        const minted = await this.blockchainService.mintPass(
+          pass.id,
+          pass.owner.wallet.address,
+        );
+        const updatedPass = await transaction.pass.update({
+          where: { id: pass.id },
+          data: {
+            tokenId: minted.tokenId,
+            mintTxHash: minted.transactionHash,
+            contractAddress: minted.contractAddress,
+            chainId: minted.chainId,
+          },
+          include: { event: true, ticketType: true },
+        });
+
+        return {
+          pass: this.toView(updatedPass),
+          recovered: minted.recovered,
+        };
+      },
+      { maxWait: 10_000, timeout: 120_000 },
+    );
+  }
+
   private toView(pass: PassWithDetails): PassView {
     return {
       id: pass.id,
@@ -124,6 +209,11 @@ export class PassesService {
       tokenId: pass.tokenId,
       mintTxHash: pass.mintTxHash,
       contractAddress: pass.contractAddress,
+      chainId: pass.chainId,
+      onChainStatus:
+        pass.tokenId && pass.mintTxHash && pass.contractAddress && pass.chainId
+          ? 'ON_CHAIN_VERIFIED'
+          : 'OFF_CHAIN',
       createdAt: pass.createdAt.toISOString(),
       event: {
         id: pass.event.id,

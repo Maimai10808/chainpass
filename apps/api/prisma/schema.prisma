@@ -13,21 +13,23 @@ datasource db {
 }
 
 model User {
-  id              String    @id
-  name            String
-  email           String
-  emailVerified   Boolean   @default(false)
-  image           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  role            String?
-  banned          Boolean?  @default(false)
-  banReason       String?
-  banExpires      DateTime?
-  sessions        Session[]
-  accounts        Account[]
-  organizedEvents Event[]
-  ownedPasses     Pass[]
+  id               String            @id
+  name             String
+  email            String
+  emailVerified    Boolean           @default(false)
+  image            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  role             String?
+  banned           Boolean?          @default(false)
+  banReason        String?
+  banExpires       DateTime?
+  sessions         Session[]
+  accounts         Account[]
+  organizedEvents  Event[]
+  ownedPasses      Pass[]
+  wallet           Wallet?
+  walletChallenges WalletChallenge[]
 
   @@unique([email])
   @@map("user")
@@ -147,10 +149,40 @@ model Pass {
   tokenId         String?
   mintTxHash      String?
   contractAddress String?
+  chainId         Int?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
   @@unique([ticketTypeId, ownerId])
+  @@unique([contractAddress, tokenId])
+  @@unique([mintTxHash])
   @@index([ownerId, createdAt])
   @@index([eventId])
+}
+
+model Wallet {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address    String   @unique
+  chainId    Int
+  verifiedAt DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model WalletChallenge {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address   String
+  chainId   Int
+  nonce     String    @unique
+  message   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+  @@index([address])
 }

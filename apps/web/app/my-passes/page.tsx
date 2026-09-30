@@ -1,27 +1,40 @@
 "use client";
 
-import { ApiClientError, type PassView } from "@chainpass/api-client";
+import {
+  ApiClientError,
+  type PassView,
+  type WalletView,
+} from "@chainpass/api-client";
+import { getTransactionExplorerUrl, type Hash } from "@chainpass/web3";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useAccount } from "wagmi";
 
 import { apiClient } from "@/lib/api-client";
 import { useSession } from "@/lib/auth-client";
+import { WalletPanel } from "./wallet-panel";
 
 export default function MyPassesPage() {
   const { data: session, isPending: isSessionPending } = useSession();
   const [passes, setPasses] = useState<PassView[]>([]);
+  const [wallet, setWallet] = useState<WalletView | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mintingPassId, setMintingPassId] = useState<string | null>(null);
+  const [mintErrors, setMintErrors] = useState<Record<string, string>>({});
+  const { address: connectedAddress } = useAccount();
 
   useEffect(() => {
     if (isSessionPending || !session) return;
 
     let active = true;
 
-    apiClient
-      .getMyPasses()
-      .then((result) => {
-        if (active) setPasses(result);
+    Promise.all([apiClient.getMyPasses(), apiClient.getMyWallet()])
+      .then(([passResult, walletResult]) => {
+        if (active) {
+          setPasses(passResult);
+          setWallet(walletResult);
+        }
       })
       .catch((caught: unknown) => {
         if (!active) return;
@@ -39,6 +52,33 @@ export default function MyPassesPage() {
       active = false;
     };
   }, [isSessionPending, session]);
+
+  async function mintPass(passId: string) {
+    if (mintingPassId) return;
+    setMintingPassId(passId);
+    setMintErrors((current) => {
+      const next = { ...current };
+      delete next[passId];
+      return next;
+    });
+
+    try {
+      const result = await apiClient.mintPass(passId);
+      setPasses((current) =>
+        current.map((pass) => (pass.id === passId ? result.pass : pass)),
+      );
+    } catch (caught) {
+      setMintErrors((current) => ({
+        ...current,
+        [passId]:
+          caught instanceof ApiClientError
+            ? caught.message
+            : "Unable to mint this pass.",
+      }));
+    } finally {
+      setMintingPassId(null);
+    }
+  }
 
   if (isSessionPending) {
     return <PageState title="Loading your passes…" />;
@@ -82,6 +122,8 @@ export default function MyPassesPage() {
             Browse events
           </Link>
         </header>
+
+        <WalletPanel wallet={wallet} onVerified={setWallet} />
 
         {passes.length === 0 ? (
           <section className="mt-10 rounded-2xl border border-dashed border-zinc-300 bg-white p-10 text-center">
@@ -130,14 +172,91 @@ export default function MyPassesPage() {
                 </dl>
 
                 <p className="mt-5 border-t border-zinc-200 pt-4 text-sm text-zinc-500">
-                  Off-chain Pass · On-chain mint pending
+                  {pass.onChainStatus === "ON_CHAIN_VERIFIED"
+                    ? "ON-CHAIN VERIFIED"
+                    : "Off-chain Pass · On-chain mint pending"}
                 </p>
+
+                {pass.onChainStatus === "ON_CHAIN_VERIFIED" &&
+                pass.tokenId &&
+                pass.mintTxHash &&
+                pass.contractAddress &&
+                pass.chainId ? (
+                  <OnChainDetails pass={pass} />
+                ) : (
+                  <div className="mt-4">
+                    <button
+                      className="w-full rounded-lg bg-zinc-950 px-4 py-2.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={
+                        mintingPassId !== null ||
+                        !wallet ||
+                        Boolean(
+                          connectedAddress &&
+                          wallet.address.toLowerCase() !==
+                            connectedAddress.toLowerCase(),
+                        )
+                      }
+                      onClick={() => void mintPass(pass.id)}
+                      type="button"
+                    >
+                      {mintingPassId === pass.id
+                        ? "Minting… Waiting for confirmation…"
+                        : "Mint On-chain"}
+                    </button>
+                    {!wallet ? (
+                      <p className="mt-2 text-sm text-amber-700">
+                        Bind a verified wallet before minting.
+                      </p>
+                    ) : null}
+                    {mintErrors[pass.id] ? (
+                      <p className="mt-2 text-sm text-red-700" role="alert">
+                        {mintErrors[pass.id]}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
               </article>
             ))}
           </section>
         )}
       </div>
     </main>
+  );
+}
+
+function OnChainDetails({ pass }: { pass: PassView }) {
+  if (
+    !pass.tokenId ||
+    !pass.mintTxHash ||
+    !pass.contractAddress ||
+    !pass.chainId
+  ) {
+    return null;
+  }
+
+  const explorerUrl = getTransactionExplorerUrl(
+    pass.chainId,
+    pass.mintTxHash as Hash,
+  );
+
+  return (
+    <dl className="mt-4 space-y-3 text-sm">
+      <Fact label="Token" value={`#${pass.tokenId}`} />
+      <Fact label="Contract" value={shortenHex(pass.contractAddress)} />
+      <Fact label="Transaction" value={shortenHex(pass.mintTxHash)} />
+      {explorerUrl ? (
+        <div>
+          <a
+            className="font-medium text-blue-700 underline"
+            href={explorerUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
+            View Transaction
+          </a>
+        </div>
+      ) : null}
+    </dl>
   );
 }
 
@@ -181,4 +300,8 @@ function formatDate(value: string) {
 
 function formatPrice(price: string) {
   return price === "0" ? "Free" : `${price} minor units`;
+}
+
+function shortenHex(value: string) {
+  return `${value.slice(0, 10)}…${value.slice(-8)}`;
 }

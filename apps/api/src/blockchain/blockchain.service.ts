@@ -1,0 +1,230 @@
+import {
+  ConflictException,
+  HttpException,
+  Injectable,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import {
+  canonicalizeEvmAddress,
+  chainPassAbi,
+  createPassHash,
+  type Address,
+  type Hash,
+  type Hex,
+} from '@chainpass/web3';
+import {
+  createPublicClient,
+  createWalletClient,
+  defineChain,
+  http,
+  parseEventLogs,
+} from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+
+export interface OnChainMintResult {
+  chainId: number;
+  contractAddress: Address;
+  recovered: boolean;
+  tokenId: string;
+  transactionHash: Hash;
+}
+
+@Injectable()
+export class BlockchainService {
+  isConfigured(): boolean {
+    return Boolean(
+      process.env.CHAIN_RPC_URL &&
+      process.env.CHAIN_ID &&
+      process.env.CHAINPASS_CONTRACT_ADDRESS &&
+      process.env.DEPLOYER_PRIVATE_KEY,
+    );
+  }
+
+  async mintPass(
+    passId: string,
+    recipient: string,
+  ): Promise<OnChainMintResult> {
+    try {
+      return await this.executeMint(passId, recipient);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+
+      throw new ServiceUnavailableException({
+        code: 'BLOCKCHAIN_TRANSACTION_UNAVAILABLE',
+        message: 'The blockchain transaction could not be completed',
+      });
+    }
+  }
+
+  private async executeMint(
+    passId: string,
+    recipient: string,
+  ): Promise<OnChainMintResult> {
+    const config = this.getConfig();
+    const recipientAddress = canonicalizeEvmAddress(recipient);
+    const passHash = createPassHash(passId);
+    const publicClient = createPublicClient({
+      chain: config.chain,
+      transport: http(config.rpcUrl),
+    });
+
+    const existingTokenId = await publicClient.readContract({
+      address: config.contractAddress,
+      abi: chainPassAbi,
+      functionName: 'tokenIdByPassHash',
+      args: [passHash],
+    });
+
+    if (existingTokenId > 0n) {
+      const owner = await publicClient.readContract({
+        address: config.contractAddress,
+        abi: chainPassAbi,
+        functionName: 'ownerOf',
+        args: [existingTokenId],
+      });
+
+      if (canonicalizeEvmAddress(owner) !== recipientAddress) {
+        throw new ConflictException({
+          code: 'PASS_ON_CHAIN_OWNER_MISMATCH',
+          message: 'The existing on-chain pass belongs to another wallet',
+        });
+      }
+
+      const logs = await publicClient.getContractEvents({
+        address: config.contractAddress,
+        abi: chainPassAbi,
+        eventName: 'PassMinted',
+        args: { passHash },
+        fromBlock: 0n,
+        toBlock: 'latest',
+        strict: true,
+      });
+      const transactionHash = logs.at(-1)?.transactionHash;
+
+      if (!transactionHash) {
+        throw new ServiceUnavailableException({
+          code: 'MINT_RECEIPT_NOT_FOUND',
+          message:
+            'The on-chain mint exists but its receipt could not be found',
+        });
+      }
+
+      return {
+        chainId: config.chainId,
+        contractAddress: config.contractAddress,
+        recovered: true,
+        tokenId: existingTokenId.toString(),
+        transactionHash,
+      };
+    }
+
+    const account = privateKeyToAccount(config.privateKey);
+    const walletClient = createWalletClient({
+      account,
+      chain: config.chain,
+      transport: http(config.rpcUrl),
+    });
+    const simulation = await publicClient.simulateContract({
+      account,
+      address: config.contractAddress,
+      abi: chainPassAbi,
+      functionName: 'mintPass',
+      args: [recipientAddress, passHash],
+    });
+    const transactionHash = await walletClient.writeContract(
+      simulation.request,
+    );
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: transactionHash,
+      confirmations: 1,
+    });
+
+    if (receipt.status !== 'success') {
+      throw new ServiceUnavailableException({
+        code: 'MINT_TRANSACTION_FAILED',
+        message: 'The mint transaction failed',
+      });
+    }
+
+    const mintEvents = parseEventLogs({
+      abi: chainPassAbi,
+      eventName: 'PassMinted',
+      logs: receipt.logs,
+      strict: true,
+    });
+    const tokenId = mintEvents[0]?.args.tokenId;
+
+    if (tokenId === undefined) {
+      throw new ServiceUnavailableException({
+        code: 'MINT_EVENT_NOT_FOUND',
+        message: 'The mint transaction did not emit PassMinted',
+      });
+    }
+
+    const owner = await publicClient.readContract({
+      address: config.contractAddress,
+      abi: chainPassAbi,
+      functionName: 'ownerOf',
+      args: [tokenId],
+    });
+
+    if (canonicalizeEvmAddress(owner) !== recipientAddress) {
+      throw new ServiceUnavailableException({
+        code: 'MINT_OWNER_VERIFICATION_FAILED',
+        message: 'The minted token owner could not be verified',
+      });
+    }
+
+    return {
+      chainId: config.chainId,
+      contractAddress: config.contractAddress,
+      recovered: false,
+      tokenId: tokenId.toString(),
+      transactionHash,
+    };
+  }
+
+  private getConfig() {
+    const rpcUrl = process.env.CHAIN_RPC_URL;
+    const chainId = Number(process.env.CHAIN_ID);
+    const contractAddressInput = process.env.CHAINPASS_CONTRACT_ADDRESS;
+    const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
+
+    if (
+      !rpcUrl ||
+      !Number.isSafeInteger(chainId) ||
+      chainId <= 0 ||
+      !contractAddressInput ||
+      !privateKey ||
+      !/^0x[0-9a-fA-F]{64}$/.test(privateKey)
+    ) {
+      throw new ServiceUnavailableException({
+        code: 'BLOCKCHAIN_NOT_CONFIGURED',
+        message: 'Blockchain minting is not configured',
+      });
+    }
+
+    let contractAddress: Address;
+    try {
+      contractAddress = canonicalizeEvmAddress(contractAddressInput);
+    } catch {
+      throw new ServiceUnavailableException({
+        code: 'BLOCKCHAIN_NOT_CONFIGURED',
+        message: 'Blockchain contract address is invalid',
+      });
+    }
+
+    return {
+      chainId,
+      contractAddress,
+      privateKey: privateKey as Hex,
+      rpcUrl,
+      chain: defineChain({
+        id: chainId,
+        name: chainId === 84532 ? 'Base Sepolia' : `Chain ${chainId}`,
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        rpcUrls: { default: { http: [rpcUrl] } },
+      }),
+    };
+  }
+}

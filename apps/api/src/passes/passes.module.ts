@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
 
+import { BlockchainModule } from '../blockchain/blockchain.module.js';
 import { PassClaimsController } from './pass-claims.controller.js';
 import { PassesController } from './passes.controller.js';
 import { PassesService } from './passes.service.js';
 
 @Module({
+  imports: [BlockchainModule],
   controllers: [PassClaimsController, PassesController],
   providers: [PassesService],
 })

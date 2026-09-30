@@ -101,6 +101,48 @@ export const publicEventDetailSchema = publicEventSummarySchema.extend({
 export const publicEventListSchema = z.array(publicEventSummarySchema);
 
 export const passStatusSchema = z.enum(["ACTIVE", "CHECKED_IN", "REVOKED"]);
+export const onChainStatusSchema = z.enum(["OFF_CHAIN", "ON_CHAIN_VERIFIED"]);
+export const evmAddressSchema = z
+  .string()
+  .regex(/^0x[0-9a-fA-F]{40}$/, "Wallet address must be a valid EVM address");
+
+export const createWalletChallengeInputSchema = z
+  .object({
+    address: evmAddressSchema,
+    chainId: z.number().int().positive(),
+  })
+  .strict();
+
+export const walletChallengeResponseSchema = z
+  .object({
+    id: z.string(),
+    address: evmAddressSchema,
+    chainId: z.number().int().positive(),
+    message: z.string().min(1),
+    expiresAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+
+export const verifyWalletInputSchema = z
+  .object({
+    challengeId: z.string().min(1),
+    address: evmAddressSchema,
+    signature: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]+$/, "Signature must be hex encoded"),
+  })
+  .strict();
+
+export const walletViewSchema = z
+  .object({
+    id: z.string(),
+    address: evmAddressSchema,
+    chainId: z.number().int().positive(),
+    verifiedAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+
+export const myWalletResponseSchema = walletViewSchema.nullable();
 
 export const passViewSchema = z
   .object({
@@ -109,6 +151,8 @@ export const passViewSchema = z
     tokenId: z.string().nullable(),
     mintTxHash: z.string().nullable(),
     contractAddress: z.string().nullable(),
+    chainId: z.number().int().positive().nullable(),
+    onChainStatus: onChainStatusSchema,
     createdAt: z.iso.datetime({ offset: true }),
     event: z
       .object({
@@ -127,7 +171,28 @@ export const passViewSchema = z
       })
       .strict(),
   })
-  .strict();
+  .strict()
+  .superRefine((pass, context) => {
+    const onChainFields = [
+      pass.tokenId,
+      pass.mintTxHash,
+      pass.contractAddress,
+      pass.chainId,
+    ];
+    const hasAllOnChainFields = onChainFields.every((value) => value !== null);
+    const hasNoOnChainFields = onChainFields.every((value) => value === null);
+
+    if (
+      (pass.onChainStatus === "ON_CHAIN_VERIFIED" && !hasAllOnChainFields) ||
+      (pass.onChainStatus === "OFF_CHAIN" && !hasNoOnChainFields)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Pass on-chain status does not match its mint metadata",
+        path: ["onChainStatus"],
+      });
+    }
+  });
 
 export const claimPassResultSchema = z
   .object({
@@ -137,6 +202,13 @@ export const claimPassResultSchema = z
   .strict();
 
 export const myPassesResponseSchema = z.array(passViewSchema);
+
+export const mintPassResultSchema = z
+  .object({
+    pass: passViewSchema,
+    recovered: z.boolean(),
+  })
+  .strict();
 
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;
 export type EventResponse = z.infer<typeof eventResponseSchema>;
@@ -148,5 +220,15 @@ export type PublicEventSummary = z.infer<typeof publicEventSummarySchema>;
 export type PublicTicketType = z.infer<typeof publicTicketTypeSchema>;
 export type PublicEventDetail = z.infer<typeof publicEventDetailSchema>;
 export type PassStatus = z.infer<typeof passStatusSchema>;
+export type OnChainStatus = z.infer<typeof onChainStatusSchema>;
 export type PassView = z.infer<typeof passViewSchema>;
 export type ClaimPassResult = z.infer<typeof claimPassResultSchema>;
+export type CreateWalletChallengeInput = z.infer<
+  typeof createWalletChallengeInputSchema
+>;
+export type WalletChallengeResponse = z.infer<
+  typeof walletChallengeResponseSchema
+>;
+export type VerifyWalletInput = z.infer<typeof verifyWalletInputSchema>;
+export type WalletView = z.infer<typeof walletViewSchema>;
+export type MintPassResult = z.infer<typeof mintPassResultSchema>;

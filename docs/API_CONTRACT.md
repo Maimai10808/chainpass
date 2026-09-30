@@ -4,7 +4,7 @@
 
 ## 1. 当前状态与目标链路
 
-当前业务 Contract 包含 Event 创建/发布、Merchant 管理查询、公开活动列表/详情、TicketType 创建/列表，以及 Pass 领取和当前用户 Pass 列表。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。Blockchain Mint 与 CheckIn Contract 尚未实现。
+当前业务 Contract 包含 Event/TicketType、公开浏览、Pass 领取与列表、Wallet 签名绑定及 Blockchain Mint。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。CheckIn Contract 尚未实现。
 
 Event 接口边界如下：
 
@@ -19,6 +19,10 @@ Event 接口边界如下：
 | `GET`  | `/events/:eventId/ticket-types`     | authenticated   | 返回管理流程的 TicketType 列表                                      |
 | `POST` | `/ticket-types/:ticketTypeId/claim` | user/admin      | 使用 Session owner 领取 Pass；成功返回 Pass 与剩余库存              |
 | `GET`  | `/passes/me`                        | authenticated   | 只返回当前 Session User 拥有的 Pass                                 |
+| `POST` | `/wallets/challenge`                | authenticated   | 为 Session User 和指定地址创建五分钟有效的一次性签名消息            |
+| `POST` | `/wallets/verify`                   | authenticated   | 验证 challenge、签名和地址后绑定 Wallet                             |
+| `GET`  | `/wallets/me`                       | authenticated   | 返回当前 Session User 的已验证 Wallet；未绑定返回 `null`            |
+| `POST` | `/passes/:passId/mint`              | owner           | 将自己的 ACTIVE Pass Mint 到已验证 Wallet；重复请求返回同一链上结果 |
 
 发布 Event 前服务端按 Authentication → Permission → Ownership → Business Rule 校验：merchant 只能发布自己组织的 Event，admin 可发布任意 Event；Event 必须存在、时间范围合法，并至少拥有一个 `ACTIVE` TicketType。缺少可发行票种返回 `400 EVENT_HAS_NO_ACTIVE_TICKET_TYPES`。
 
@@ -27,6 +31,10 @@ Event 接口边界如下：
 Claim Pass 请求不接受可信身份或库存字段；`ownerId` 固定来自 `session.user.id`。Event 必须为 `PUBLISHED`、TicketType 必须为 `ACTIVE` 且有库存，同一 User 对同一 TicketType 只能领取一次。重复领取、未发布、停用和售罄使用 `409` 与稳定业务错误码区分。
 
 库存扣减和 Pass 创建在同一数据库事务中完成。PostgreSQL 条件更新只在 `claimedCount < totalSupply` 时递增；`Pass(ticketTypeId, ownerId)` 唯一约束提供最终防重，Pass 创建失败会回滚库存更新。
+
+Wallet 请求不能提交 `userId`。Challenge 绑定 Session User、canonical EVM address、chain ID、nonce、签发/过期时间，验证成功后原子标记已使用；同一 User 与同一 canonical address 均只能绑定一次。连接钱包不等于已验证绑定。
+
+Mint 请求不能提交 recipient。API 从 Session 校验 Pass ownership，再从 Wallet 表取得目标地址；仅 `ACTIVE` 且未 Mint 的 Pass 可执行。服务端 issuer 等待 receipt、解析 `PassMinted`、验证 `ownerOf` 后一次写入完整链上字段。`tokenId` 以十进制字符串返回；已 Mint 或链成功但 DB 未落库的重试通过 `passHash → tokenId` 恢复，避免第二笔 Mint。
 
 TicketType 的 `price` 以最小货币单位的非负整数写入 PostgreSQL `BIGINT`；创建请求使用 JavaScript 安全整数，响应使用十进制字符串避免 JSON/JavaScript 精度损失，`"0"` 表示免费票。`claimedCount` 由服务端初始化为 `0`，客户端不能提交。Merchant 创建票种前必须通过 Event ownership 校验，admin 可以代管，查询接口保持为已登录用户可读的简单列表。
 
@@ -75,7 +83,7 @@ DTO 和 OpenAPI metadata 必须同步。Web/Mobile 通过 `@chainpass/api-client
 
 ## 4. API Client 规则
 
-`@chainpass/api-client` 是 Web 与 Mobile 的统一业务访问层。当前 Web 通过 `getManagedEvent`、`publishEvent`、`listPublishedEvents`、`getPublishedEvent`、`claimPass` 和 `getMyPasses` 消费管理、公开与持票 Contract。它应：
+`@chainpass/api-client` 是 Web 与 Mobile 的统一业务访问层。当前 Web 还通过 `createWalletChallenge`、`verifyWallet`、`getMyWallet` 和 `mintPass` 消费 Wallet/Mint Contract。它应：
 
 - 从 OpenAPI 生成类型/Client，或在生成链路落地前集中维护唯一实现；
 - 使用调用方提供的 base URL 和平台适配的 Session/Cookie transport；

@@ -10,6 +10,12 @@ allowBuilds:
   prisma: false
   unrs-resolver: false
   utf-8-validate: false
+minimumReleaseAgeExclude:
+  - expo-constants@57.0.20
+  - expo-modules-core@57.0.20
+  - expo@57.0.26
+  - '@expo/ui@57.0.21'
+  - expo-router@57.0.24
 overrides:
   "@wagmi/connectors": "6.2.0"
   "@wagmi/core": "2.22.1"

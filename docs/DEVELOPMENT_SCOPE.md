@@ -42,10 +42,11 @@ Check-in
 - Wallet Binding + Blockchain Mint Vertical Slice：签名 challenge、单 Wallet 绑定、issuer-only non-transferable ERC-721、Anvil 集成、链/DB 恢复与 Web Mint 状态。
 - Merchant Verify / Check-in Vertical Slice：Event Ownership 核验、只读 Pass Verify、原子 CheckIn、防并发重复核销与 Merchant Web 操作页。
 - Dynamic QR Verification Vertical Slice：短时 HMAC Credential、用户动态 QR、Merchant 摄像头扫描，以及复用既有 Verify/Check-in。
+- Mobile User Experience Vertical Slice：Better Auth Expo/SecureStore 登录、公开活动浏览、Claim、My Passes、Pass Detail 与动态 QR 展示。
 
 尚未实现或尚未接通：
 
-- 全部 Mobile 票务 UI；
+- Mobile Merchant Scanner、Wallet Binding 与 Mint 操作；
 - Base Sepolia 部署地址与真实广播证据；
 
 因此后续任务应以完成 Vertical Slice 为目标，不能把骨架目录视为已交付能力。
@@ -94,7 +95,7 @@ Done
 7. Pass On-chain Verification：展示可核对的 chain、contract、token 与 transaction 信息。**已完成**
 8. Merchant Verify / Check-in：权限、活动 Ownership、防重复核销和状态更新。**已完成**
 9. QR Code：只编码不可伪造或可服务端验证的最小凭证，不承载可信业务状态。**已完成（Web）**
-10. Mobile UX：覆盖用户领取、My Pass、二维码和必要 Scanner 流程。
+10. Mobile UX：覆盖用户登录、活动浏览、领取、My Pass 与动态二维码。**已完成（用户端）**
 11. UI Polish：只优化已跑通的主流程。
 12. Server Deployment：主链稳定后完成最小可演示部署。
 

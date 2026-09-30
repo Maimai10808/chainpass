@@ -11,7 +11,8 @@
 - Monorepo、Next.js、NestJS、Expo、Foundry、PostgreSQL 与四个共享包的目录已经建立。
 - Better Auth 已接入 API、Web 与 Mobile；Prisma 在唯一的 Better Auth `User` 上关联 Event、Pass、一个已验证 Wallet 及短期 Wallet Challenge。
 - API 已实现 Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Blockchain Mint、Merchant Verify/Check-in 与短时动态 QR Credential，并在 `/docs` 与 `/docs/openapi.json` 暴露 Swagger/OpenAPI Contract。
-- Web 已实现 Merchant 活动管理、公开活动、Claim、`/my-passes` 的钱包连接/签名绑定与 Mint 状态、用户 Pass 动态 QR，以及 `/merchant/check-in` 的手工/摄像头核验；Mobile 业务 UI 尚未实现。
+- Web 已实现 Merchant 活动管理、公开活动、Claim、`/my-passes` 的钱包连接/签名绑定与 Mint 状态、用户 Pass 动态 QR，以及 `/merchant/check-in` 的手工/摄像头核验。
+- Mobile 已实现 Better Auth 登录注册、公开活动列表/详情、Claim、My Passes、Pass Detail 与服务端签发的动态 QR；Merchant Scanner、Wallet Binding 和 Mint 操作仍只在 Web 提供。
 - `@chainpass/api-client` 与 `@chainpass/schemas` 承载业务边界；`@chainpass/web3` 共享实际合约 ABI、Base Sepolia 配置、地址规范化和 Pass Hash 规则。
 - Solidity `ChainPass` 是 issuer-only、non-transferable ERC-721，按 database Pass hash 防重复 Mint；已有 Foundry 测试、部署脚本和 ABI 同步脚本，但尚无 Base Sepolia 部署地址或广播记录。
 - `infra/docker-compose.yml` 当前只启动本地 PostgreSQL；Nginx、Web/API 容器与生产部署尚未实现。
@@ -91,17 +92,19 @@ Feature-specific DTO 留在各 Feature 内；只有被多个 Feature 实际复�
 
 ### `apps/mobile`
 
-当前技术栈为 Expo SDK 57、React Native 0.86、Expo Router 与 React 19。现有代码包含 Better Auth Expo Client、SecureStore 和 Auth 测试页。
+当前技术栈为 Expo SDK 57、React Native 0.86、Expo Router、React 19 与 TanStack Query。Better Auth Expo Client 使用 SecureStore 持久化 Session；业务请求统一经过 `@chainpass/api-client`，原生端从同一 Auth Client 读取 Cookie，不在页面维护第二套 Token。
 
-目标职责：
+当前职责：
 
 - 用户浏览活动与领取 Pass；
-- My Passes、Pass Detail 与 QR；
-- 必要的现场 Scanner 体验；
-- Better Auth Expo Client 与 Web3 用户交互；
+- My Passes、Pass Detail 与短时动态 QR；
+- Better Auth Expo Client 身份体验；
+- 展示 API 返回的链上状态与共享 Explorer 链接；
 - 消费与 Web 相同的业务 API Contract。
 
 Mobile 不实现服务端业务规则，不导入 NestJS/Prisma 实现。修改 Mobile 前同时遵守 `apps/mobile/AGENTS.md`。
+
+Mobile 使用 Expo Router Native Tabs 提供 Discover、My Passes 与 Profile 三个主入口。TanStack Query 的稳定 key 为 `events`、`event/:id`、`my-passes` 与 `pass-verification-token/:id`；Claim 后刷新 Event Detail 与 My Passes，App 回到 foreground 时重新校验列表和动态 QR。QR payload 始终来自 API，Mobile 不持有签名 Secret。
 
 ## 4. Packages 职责
 
@@ -152,7 +155,7 @@ PostgreSQL
 
 动态 QR 只承载由 API 使用 HMAC-SHA256 签名、60 秒有效的临时 Credential。Scanner 验签并解析 `passId` 后回到现有 Verify/Check-in Service；数据库 Pass/CheckIn 始终是核验状态事实来源，二维码本身不修改业务状态，也不需要新增数据表。
 
-Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Mint 与 Merchant Verify/Check-in 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
+Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Mint、Merchant Verify/Check-in 与 Mobile User Experience 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
 
 当前链上数据流：
 

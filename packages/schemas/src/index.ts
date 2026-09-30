@@ -285,6 +285,25 @@ export const verifyPassResponseSchema = z
 
 export const checkInResponseSchema = verifyPassResponseSchema;
 
+export const passVerificationTokenResponseSchema = z
+  .object({
+    token: z.string().min(1),
+    expiresAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+
+export const verifyQrTokenInputSchema = z
+  .object({
+    token: z.string().min(1, "Verification token is required"),
+  })
+  .strict();
+
+export const verifyQrTokenResponseSchema = verifyPassResponseSchema;
+export const qrVerificationErrorSchema = z.enum([
+  "INVALID_QR_TOKEN",
+  "QR_TOKEN_EXPIRED",
+]);
+
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;
 export type EventResponse = z.infer<typeof eventResponseSchema>;
 export type EventStatus = z.infer<typeof eventStatusSchema>;
@@ -315,3 +334,9 @@ export type CheckInMethod = z.infer<typeof checkInMethodSchema>;
 export type CheckInInput = z.infer<typeof checkInInputSchema>;
 export type VerifyPassResponse = z.infer<typeof verifyPassResponseSchema>;
 export type CheckInResponse = z.infer<typeof checkInResponseSchema>;
+export type PassVerificationTokenResponse = z.infer<
+  typeof passVerificationTokenResponseSchema
+>;
+export type VerifyQrTokenInput = z.infer<typeof verifyQrTokenInputSchema>;
+export type VerifyQrTokenResponse = z.infer<typeof verifyQrTokenResponseSchema>;
+export type QrVerificationError = z.infer<typeof qrVerificationErrorSchema>;

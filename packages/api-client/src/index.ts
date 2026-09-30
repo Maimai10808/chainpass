@@ -7,6 +7,7 @@ import {
   claimPassResultSchema,
   eventResponseSchema,
   mintPassResultSchema,
+  passVerificationTokenResponseSchema,
   myWalletResponseSchema,
   publicEventDetailSchema,
   publicEventListSchema,
@@ -15,6 +16,8 @@ import {
   ticketTypeResponseSchema,
   verifyWalletInputSchema,
   verifyPassResponseSchema,
+  verifyQrTokenInputSchema,
+  verifyQrTokenResponseSchema,
   walletChallengeResponseSchema,
   walletViewSchema,
   type CreateEventInput,
@@ -28,11 +31,14 @@ import {
   type PublicEventSummary,
   type PassView,
   type MintPassResult,
+  type PassVerificationTokenResponse,
   type TicketTypeResponse,
   type VerifyWalletInput,
   type WalletChallengeResponse,
   type WalletView,
   type VerifyPassResponse,
+  type VerifyQrTokenInput,
+  type VerifyQrTokenResponse,
 } from "@chainpass/schemas";
 
 export interface ChainPassApiClientOptions {
@@ -233,6 +239,42 @@ export function createApiClient(options: ChainPassApiClientOptions) {
       return verifyPassResponseSchema.parse(await response.json());
     },
 
+    async createPassVerificationToken(
+      passId: string,
+    ): Promise<PassVerificationTokenResponse> {
+      const response = await fetcher(
+        `${baseUrl}/passes/${encodeURIComponent(passId)}/verification-token`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return passVerificationTokenResponseSchema.parse(await response.json());
+    },
+
+    async verifyPassToken(
+      input: VerifyQrTokenInput,
+    ): Promise<VerifyQrTokenResponse> {
+      const payload = verifyQrTokenInputSchema.parse(input);
+      const response = await fetcher(`${baseUrl}/passes/verify-token`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return verifyQrTokenResponseSchema.parse(await response.json());
+    },
+
     async checkInPass(
       passId: string,
       input: CheckInInput = { method: "MANUAL" },
@@ -336,9 +378,12 @@ export type {
   PublicEventSummary,
   PassView,
   MintPassResult,
+  PassVerificationTokenResponse,
   TicketTypeResponse,
   VerifyWalletInput,
   VerifyPassResponse,
+  VerifyQrTokenInput,
+  VerifyQrTokenResponse,
   WalletChallengeResponse,
   WalletView,
 } from "@chainpass/schemas";

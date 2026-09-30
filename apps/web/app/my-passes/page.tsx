@@ -177,6 +177,13 @@ export default function MyPassesPage() {
                     : "Off-chain Pass · On-chain mint pending"}
                 </p>
 
+                <Link
+                  className="mt-4 inline-flex w-full justify-center rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-900"
+                  href={`/my-passes/${pass.id}`}
+                >
+                  {pass.status === "ACTIVE" ? "Show dynamic QR" : "View pass"}
+                </Link>
+
                 {pass.onChainStatus === "ON_CHAIN_VERIFIED" &&
                 pass.tokenId &&
                 pass.mintTxHash &&

@@ -10,8 +10,8 @@
 
 - Monorepo、Next.js、NestJS、Expo、Foundry、PostgreSQL 与四个共享包的目录已经建立。
 - Better Auth 已接入 API、Web 与 Mobile；Prisma 在唯一的 Better Auth `User` 上关联 Event、Pass、一个已验证 Wallet 及短期 Wallet Challenge。
-- API 已实现 Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Blockchain Mint 与 Merchant Verify/Check-in，并在 `/docs` 与 `/docs/openapi.json` 暴露 Swagger/OpenAPI Contract。
-- Web 已实现 Merchant 活动管理、公开活动、Claim、`/my-passes` 的钱包连接/签名绑定与 Mint 状态，以及 `/merchant/check-in` 核验页；Mobile 业务 UI 尚未实现。
+- API 已实现 Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Blockchain Mint、Merchant Verify/Check-in 与短时动态 QR Credential，并在 `/docs` 与 `/docs/openapi.json` 暴露 Swagger/OpenAPI Contract。
+- Web 已实现 Merchant 活动管理、公开活动、Claim、`/my-passes` 的钱包连接/签名绑定与 Mint 状态、用户 Pass 动态 QR，以及 `/merchant/check-in` 的手工/摄像头核验；Mobile 业务 UI 尚未实现。
 - `@chainpass/api-client` 与 `@chainpass/schemas` 承载业务边界；`@chainpass/web3` 共享实际合约 ABI、Base Sepolia 配置、地址规范化和 Pass Hash 规则。
 - Solidity `ChainPass` 是 issuer-only、non-transferable ERC-721，按 database Pass hash 防重复 Mint；已有 Foundry 测试、部署脚本和 ABI 同步脚本，但尚无 Base Sepolia 部署地址或广播记录。
 - `infra/docker-compose.yml` 当前只启动本地 PostgreSQL；Nginx、Web/API 容器与生产部署尚未实现。
@@ -150,6 +150,8 @@ Prisma
 PostgreSQL
 ```
 
+动态 QR 只承载由 API 使用 HMAC-SHA256 签名、60 秒有效的临时 Credential。Scanner 验签并解析 `passId` 后回到现有 Verify/Check-in Service；数据库 Pass/CheckIn 始终是核验状态事实来源，二维码本身不修改业务状态，也不需要新增数据表。
+
 Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Mint 与 Merchant Verify/Check-in 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
 
 当前链上数据流：
@@ -224,8 +226,7 @@ apps/* ────> @chainpass/web3 ──> deployed contract interface
 
 Mint 的 MVP 决策已经落地：API issuer 支付 gas，database Pass ID 生成 `passHash`，receipt 一次确认后写回，合约映射承担最小恢复依据。后续仍需明确：
 
-1. QR Payload 的防伪、过期与重放策略，以及如何复用现有 Verify/Check-in API。
-2. Base Sepolia 正式部署、地址发布、issuer key 托管与轮换责任。
-3. 进入长期运行后是否需要独立 pending 状态或事件索引器；三天 MVP 不预先引入。
+1. Base Sepolia 正式部署、地址发布、issuer key 托管与轮换责任。
+2. 进入长期运行后是否需要独立 pending 状态或事件索引器；三天 MVP 不预先引入。
 
 这些问题需要在实现对应 Vertical Slice 时做最小明确决策；不要先引入通用事件总线或复杂分布式架构。

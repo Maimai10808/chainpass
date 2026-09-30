@@ -7,25 +7,37 @@ import { vi } from 'vitest';
 
 import { AppModule } from '../src/app.module.js';
 import { BlockchainService } from '../src/blockchain/blockchain.service.js';
+import { QR_TOKEN_CLOCK } from '../src/check-ins/qr-verification-token.service.js';
 import { prisma } from '../src/database/prisma.js';
 
 describe('Merchant pass verification and check-in', () => {
   let app: INestApplication<App>;
+  const originalQrSecret = process.env.QR_VERIFICATION_SECRET;
 
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const testEmailPrefix = `check-in-e2e-${runId}`;
   const verifyTokenOwner = vi.fn();
+  let qrNow = Date.now();
 
   beforeAll(async () => {
+    process.env.QR_VERIFICATION_SECRET =
+      'test-only-qr-verification-secret-at-least-32-characters';
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(BlockchainService)
       .useValue({ verifyTokenOwner })
+      .overrideProvider(QR_TOKEN_CLOCK)
+      .useValue(() => qrNow)
       .compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();
+  });
+
+  beforeEach(() => {
+    qrNow = Date.now();
+    verifyTokenOwner.mockReset();
   });
 
   afterAll(async () => {
@@ -42,6 +54,204 @@ describe('Merchant pass verification and check-in', () => {
       where: { email: { startsWith: testEmailPrefix } },
     });
     await app.close();
+
+    if (originalQrSecret === undefined) {
+      delete process.env.QR_VERIFICATION_SECRET;
+    } else {
+      process.env.QR_VERIFICATION_SECRET = originalQrSecret;
+    }
+  });
+
+  it('lets a pass owner create a short-lived token that the organizer can verify', async () => {
+    const merchant = await signUpAs('merchant');
+    const holder = await signUpAs('user');
+    const pass = await createPass(merchant.userId, holder.userId);
+
+    const tokenResponse = await request(app.getHttpServer())
+      .post(`/passes/${pass.id}/verification-token`)
+      .set('Cookie', holder.cookie);
+
+    expect(tokenResponse.status).toBe(201);
+    expect(tokenResponse.body).toEqual({
+      token: expect.any(String),
+      expiresAt: expect.any(String),
+    });
+    expect(new Date(tokenResponse.body.expiresAt).getTime()).toBeGreaterThan(
+      Date.now(),
+    );
+    const payload = JSON.parse(
+      Buffer.from(
+        tokenResponse.body.token.split('.')[0],
+        'base64url',
+      ).toString(),
+    );
+    expect(payload).toEqual({
+      v: 1,
+      passId: pass.id,
+      ownerId: holder.userId,
+      nonce: expect.any(String),
+      iat: expect.any(Number),
+      exp: expect.any(Number),
+    });
+    expect(payload.exp - payload.iat).toBe(60);
+    expect(JSON.stringify(payload)).not.toContain(holder.email);
+
+    const verification = await request(app.getHttpServer())
+      .post('/passes/verify-token')
+      .set('Cookie', merchant.cookie)
+      .send({ token: tokenResponse.body.token });
+
+    expect(verification.status).toBe(200);
+    expect(verification.body).toMatchObject({
+      verificationStatus: 'VALID',
+      canCheckIn: true,
+      pass: { id: pass.id, status: 'ACTIVE' },
+      holder: { id: holder.userId },
+    });
+  });
+
+  it('rejects anonymous, non-owner, checked-in, and revoked token generation', async () => {
+    const merchant = await signUpAs('merchant');
+    const holder = await signUpAs('user');
+    const otherUser = await signUpAs('user');
+    const activePass = await createPass(merchant.userId, holder.userId);
+    const checkedInPass = await createPass(
+      merchant.userId,
+      otherUser.userId,
+      'CHECKED_IN',
+    );
+    const revokedOwner = await signUpAs('user');
+    const revokedPass = await createPass(
+      merchant.userId,
+      revokedOwner.userId,
+      'REVOKED',
+    );
+
+    await request(app.getHttpServer())
+      .post(`/passes/${activePass.id}/verification-token`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post(`/passes/${activePass.id}/verification-token`)
+      .set('Cookie', otherUser.cookie)
+      .expect(403);
+
+    const checkedIn = await request(app.getHttpServer())
+      .post(`/passes/${checkedInPass.id}/verification-token`)
+      .set('Cookie', otherUser.cookie);
+    expect(checkedIn.status).toBe(409);
+    expect(checkedIn.body).toMatchObject({ code: 'PASS_NOT_ACTIVE' });
+
+    const revoked = await request(app.getHttpServer())
+      .post(`/passes/${revokedPass.id}/verification-token`)
+      .set('Cookie', revokedOwner.cookie);
+    expect(revoked.status).toBe(409);
+    expect(revoked.body).toMatchObject({ code: 'PASS_NOT_ACTIVE' });
+  });
+
+  it('rejects a tampered QR token without exposing signing details', async () => {
+    const merchant = await signUpAs('merchant');
+    const holder = await signUpAs('user');
+    const pass = await createPass(merchant.userId, holder.userId);
+    const tokenResponse = await request(app.getHttpServer())
+      .post(`/passes/${pass.id}/verification-token`)
+      .set('Cookie', holder.cookie)
+      .expect(201);
+    const [payload, signature] = tokenResponse.body.token.split('.');
+    const tamperedSignature = `${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
+
+    const response = await request(app.getHttpServer())
+      .post('/passes/verify-token')
+      .set('Cookie', merchant.cookie)
+      .send({ token: `${payload}.${tamperedSignature}` });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      code: 'INVALID_QR_TOKEN',
+      message: 'QR verification token is invalid',
+    });
+  });
+
+  it('returns QR_TOKEN_EXPIRED after the 60-second token lifetime', async () => {
+    const merchant = await signUpAs('merchant');
+    const holder = await signUpAs('user');
+    const pass = await createPass(merchant.userId, holder.userId);
+    const tokenResponse = await request(app.getHttpServer())
+      .post(`/passes/${pass.id}/verification-token`)
+      .set('Cookie', holder.cookie)
+      .expect(201);
+
+    qrNow += 60_000;
+    const response = await request(app.getHttpServer())
+      .post('/passes/verify-token')
+      .set('Cookie', merchant.cookie)
+      .send({ token: tokenResponse.body.token });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ code: 'QR_TOKEN_EXPIRED' });
+  });
+
+  it('enforces merchant role and Event ownership for QR verification', async () => {
+    const merchant = await signUpAs('merchant');
+    const otherMerchant = await signUpAs('merchant');
+    const holder = await signUpAs('user');
+    const pass = await createPass(merchant.userId, holder.userId);
+    const tokenResponse = await request(app.getHttpServer())
+      .post(`/passes/${pass.id}/verification-token`)
+      .set('Cookie', holder.cookie)
+      .expect(201);
+    const body = { token: tokenResponse.body.token };
+
+    await request(app.getHttpServer())
+      .post('/passes/verify-token')
+      .send(body)
+      .expect(401);
+    await request(app.getHttpServer())
+      .post('/passes/verify-token')
+      .set('Cookie', holder.cookie)
+      .send(body)
+      .expect(403);
+    await request(app.getHttpServer())
+      .post('/passes/verify-token')
+      .set('Cookie', otherMerchant.cookie)
+      .send(body)
+      .expect(403);
+  });
+
+  it('records QR check-in and returns ALREADY_CHECKED_IN on token replay', async () => {
+    const merchant = await signUpAs('merchant');
+    const holder = await signUpAs('user');
+    const pass = await createPass(merchant.userId, holder.userId);
+    const tokenResponse = await request(app.getHttpServer())
+      .post(`/passes/${pass.id}/verification-token`)
+      .set('Cookie', holder.cookie)
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/passes/verify-token')
+      .set('Cookie', merchant.cookie)
+      .send({ token: tokenResponse.body.token })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/passes/${pass.id}/check-in`)
+      .set('Cookie', merchant.cookie)
+      .send({ method: 'QR' })
+      .expect(201);
+
+    const replay = await request(app.getHttpServer())
+      .post('/passes/verify-token')
+      .set('Cookie', merchant.cookie)
+      .send({ token: tokenResponse.body.token });
+    expect(replay.status).toBe(200);
+    expect(replay.body).toMatchObject({
+      verificationStatus: 'ALREADY_CHECKED_IN',
+      canCheckIn: false,
+    });
+    await expect(
+      prisma.checkIn.findUniqueOrThrow({ where: { passId: pass.id } }),
+    ).resolves.toMatchObject({
+      method: 'QR',
+      verifiedById: merchant.userId,
+    });
   });
 
   it('creates a CheckIn and marks the pass CHECKED_IN atomically', async () => {

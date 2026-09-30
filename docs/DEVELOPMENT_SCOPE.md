@@ -40,14 +40,13 @@ Check-in
 - Publish Event + User Browse Event Vertical Slice：发布规则、Draft 公开隔离、公开活动列表/详情、ACTIVE TicketType 与服务端剩余量视图。
 - User Claim Pass + My Passes Vertical Slice：Pass 模型、原子库存扣减、重复领取约束、Claim API 与 Web 持票列表。
 - Wallet Binding + Blockchain Mint Vertical Slice：签名 challenge、单 Wallet 绑定、issuer-only non-transferable ERC-721、Anvil 集成、链/DB 恢复与 Web Mint 状态。
+- Merchant Verify / Check-in Vertical Slice：Event Ownership 核验、只读 Pass Verify、原子 CheckIn、防并发重复核销与 Merchant Web 操作页。
 
 尚未实现或尚未接通：
 
-- CheckIn Prisma 业务模型；
-- 对应的后续 NestJS 业务模块、DTO、授权与测试；
 - 全部 Mobile 票务 UI；
 - Base Sepolia 部署地址与真实广播证据；
-- Check-in、QR 与其数据库/链上状态协调。
+- QR 与动态核验 Payload。
 
 因此后续任务应以完成 Vertical Slice 为目标，不能把骨架目录视为已交付能力。
 
@@ -93,7 +92,7 @@ Done
 5. My Passes：仅返回当前用户可见 Pass。**已完成**
 6. Blockchain Mint：明确 signer、网络、ID 映射、交易状态和失败处理后接入。**已完成（本地 Anvil）**
 7. Pass On-chain Verification：展示可核对的 chain、contract、token 与 transaction 信息。**已完成**
-8. Merchant Verify / Check-in：权限、活动 Ownership、防重复核销和状态更新。
+8. Merchant Verify / Check-in：权限、活动 Ownership、防重复核销和状态更新。**已完成**
 9. QR Code：只编码不可伪造或可服务端验证的最小凭证，不承载可信业务状态。
 10. Mobile UX：覆盖用户领取、My Pass、二维码和必要 Scanner 流程。
 11. UI Polish：只优化已跑通的主流程。

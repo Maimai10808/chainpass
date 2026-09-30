@@ -164,12 +164,10 @@ export function EventManagement({ eventId }: { eventId: string }) {
   return (
     <main className="min-h-screen bg-zinc-50 px-6 py-12 text-zinc-950">
       <div className="mx-auto max-w-4xl">
-        <Link
-          className="text-sm font-medium text-blue-700 underline"
-          href="/merchant/events/new"
-        >
-          Create another event
-        </Link>
+        <nav className="flex flex-wrap gap-4 text-sm font-medium text-blue-700 underline">
+          <Link href="/merchant/events/new">Create another event</Link>
+          <Link href="/merchant/check-in">Check in a pass</Link>
+        </nav>
 
         <header className="mt-5 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
           <p className="text-sm font-medium text-blue-700">

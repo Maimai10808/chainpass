@@ -2,6 +2,8 @@ import {
   createEventInputSchema,
   createTicketTypeInputSchema,
   createWalletChallengeInputSchema,
+  checkInInputSchema,
+  checkInResponseSchema,
   claimPassResultSchema,
   eventResponseSchema,
   mintPassResultSchema,
@@ -12,11 +14,14 @@ import {
   ticketTypeListResponseSchema,
   ticketTypeResponseSchema,
   verifyWalletInputSchema,
+  verifyPassResponseSchema,
   walletChallengeResponseSchema,
   walletViewSchema,
   type CreateEventInput,
   type CreateTicketTypeInput,
   type ClaimPassResult,
+  type CheckInInput,
+  type CheckInResponse,
   type CreateWalletChallengeInput,
   type EventResponse,
   type PublicEventDetail,
@@ -27,6 +32,7 @@ import {
   type VerifyWalletInput,
   type WalletChallengeResponse,
   type WalletView,
+  type VerifyPassResponse,
 } from "@chainpass/schemas";
 
 export interface ChainPassApiClientOptions {
@@ -214,6 +220,41 @@ export function createApiClient(options: ChainPassApiClientOptions) {
       return mintPassResultSchema.parse(await response.json());
     },
 
+    async verifyPass(passId: string): Promise<VerifyPassResponse> {
+      const response = await fetcher(
+        `${baseUrl}/passes/${encodeURIComponent(passId)}/verify`,
+        { credentials: "include" },
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return verifyPassResponseSchema.parse(await response.json());
+    },
+
+    async checkInPass(
+      passId: string,
+      input: CheckInInput = { method: "MANUAL" },
+    ): Promise<CheckInResponse> {
+      const payload = checkInInputSchema.parse(input);
+      const response = await fetcher(
+        `${baseUrl}/passes/${encodeURIComponent(passId)}/check-in`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      if (!response.ok) {
+        throw await toApiClientError(response);
+      }
+
+      return checkInResponseSchema.parse(await response.json());
+    },
+
     async createTicketType(
       eventId: string,
       input: CreateTicketTypeInput,
@@ -287,6 +328,8 @@ export type {
   CreateEventInput,
   CreateTicketTypeInput,
   ClaimPassResult,
+  CheckInInput,
+  CheckInResponse,
   CreateWalletChallengeInput,
   EventResponse,
   PublicEventDetail,
@@ -295,6 +338,7 @@ export type {
   MintPassResult,
   TicketTypeResponse,
   VerifyWalletInput,
+  VerifyPassResponse,
   WalletChallengeResponse,
   WalletView,
 } from "@chainpass/schemas";

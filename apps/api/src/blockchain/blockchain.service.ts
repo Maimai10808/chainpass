@@ -29,6 +29,13 @@ export interface OnChainMintResult {
   transactionHash: Hash;
 }
 
+export interface VerifyTokenOwnerInput {
+  chainId: number;
+  contractAddress: string;
+  tokenId: string;
+  expectedOwner: string;
+}
+
 @Injectable()
 export class BlockchainService {
   isConfigured(): boolean {
@@ -52,6 +59,43 @@ export class BlockchainService {
       throw new ServiceUnavailableException({
         code: 'BLOCKCHAIN_TRANSACTION_UNAVAILABLE',
         message: 'The blockchain transaction could not be completed',
+      });
+    }
+  }
+
+  async verifyTokenOwner(input: VerifyTokenOwnerInput): Promise<boolean> {
+    try {
+      const config = this.getReadConfig();
+      const contractAddress = canonicalizeEvmAddress(input.contractAddress);
+
+      if (
+        input.chainId !== config.chainId ||
+        contractAddress !== config.contractAddress
+      ) {
+        return false;
+      }
+
+      const publicClient = createPublicClient({
+        chain: config.chain,
+        transport: http(config.rpcUrl),
+      });
+      const owner = await publicClient.readContract({
+        address: contractAddress,
+        abi: chainPassAbi,
+        functionName: 'ownerOf',
+        args: [BigInt(input.tokenId)],
+      });
+
+      return (
+        canonicalizeEvmAddress(owner) ===
+        canonicalizeEvmAddress(input.expectedOwner)
+      );
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+
+      throw new ServiceUnavailableException({
+        code: 'BLOCKCHAIN_VERIFICATION_UNAVAILABLE',
+        message: 'The on-chain pass owner could not be verified',
       });
     }
   }
@@ -185,18 +229,32 @@ export class BlockchainService {
   }
 
   private getConfig() {
+    const readConfig = this.getReadConfig();
+    const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
+
+    if (!privateKey || !/^0x[0-9a-fA-F]{64}$/.test(privateKey)) {
+      throw new ServiceUnavailableException({
+        code: 'BLOCKCHAIN_NOT_CONFIGURED',
+        message: 'Blockchain minting is not configured',
+      });
+    }
+
+    return {
+      ...readConfig,
+      privateKey: privateKey as Hex,
+    };
+  }
+
+  private getReadConfig() {
     const rpcUrl = process.env.CHAIN_RPC_URL;
     const chainId = Number(process.env.CHAIN_ID);
     const contractAddressInput = process.env.CHAINPASS_CONTRACT_ADDRESS;
-    const privateKey = process.env.DEPLOYER_PRIVATE_KEY;
 
     if (
       !rpcUrl ||
       !Number.isSafeInteger(chainId) ||
       chainId <= 0 ||
-      !contractAddressInput ||
-      !privateKey ||
-      !/^0x[0-9a-fA-F]{64}$/.test(privateKey)
+      !contractAddressInput
     ) {
       throw new ServiceUnavailableException({
         code: 'BLOCKCHAIN_NOT_CONFIGURED',
@@ -217,7 +275,6 @@ export class BlockchainService {
     return {
       chainId,
       contractAddress,
-      privateKey: privateKey as Hex,
       rpcUrl,
       chain: defineChain({
         id: chainId,

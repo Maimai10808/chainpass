@@ -102,6 +102,24 @@ export const publicEventListSchema = z.array(publicEventSummarySchema);
 
 export const passStatusSchema = z.enum(["ACTIVE", "CHECKED_IN", "REVOKED"]);
 export const onChainStatusSchema = z.enum(["OFF_CHAIN", "ON_CHAIN_VERIFIED"]);
+export const verificationStatusSchema = z.enum([
+  "VALID",
+  "ALREADY_CHECKED_IN",
+  "REVOKED",
+  "INVALID",
+]);
+export const passVerificationOnChainStatusSchema = z.enum([
+  "VERIFIED",
+  "NOT_MINTED",
+  "MISMATCH",
+  "UNAVAILABLE",
+]);
+export const checkInMethodSchema = z.enum(["MANUAL", "QR"]);
+export const checkInInputSchema = z
+  .object({
+    method: checkInMethodSchema.default("MANUAL"),
+  })
+  .strict();
 export const evmAddressSchema = z
   .string()
   .regex(/^0x[0-9a-fA-F]{40}$/, "Wallet address must be a valid EVM address");
@@ -210,6 +228,63 @@ export const mintPassResultSchema = z
   })
   .strict();
 
+export const verifyPassResponseSchema = z
+  .object({
+    verificationStatus: verificationStatusSchema,
+    onChainStatus: passVerificationOnChainStatusSchema,
+    canCheckIn: z.boolean(),
+    pass: z
+      .object({
+        id: z.string(),
+        status: passStatusSchema,
+        tokenId: z.string().nullable(),
+        mintTxHash: z.string().nullable(),
+        contractAddress: z.string().nullable(),
+        chainId: z.number().int().positive().nullable(),
+        createdAt: z.iso.datetime({ offset: true }),
+      })
+      .strict(),
+    event: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        startsAt: z.iso.datetime({ offset: true }),
+        location: z.string().nullable(),
+      })
+      .strict(),
+    ticketType: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+      })
+      .strict(),
+    holder: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        email: z.email(),
+      })
+      .strict(),
+    checkIn: z
+      .object({
+        id: z.string(),
+        method: checkInMethodSchema,
+        verifiedAt: z.iso.datetime({ offset: true }),
+        verifiedBy: z
+          .object({
+            id: z.string(),
+            name: z.string(),
+            email: z.email(),
+          })
+          .strict(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
+export const checkInResponseSchema = verifyPassResponseSchema;
+
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;
 export type EventResponse = z.infer<typeof eventResponseSchema>;
 export type EventStatus = z.infer<typeof eventStatusSchema>;
@@ -232,3 +307,11 @@ export type WalletChallengeResponse = z.infer<
 export type VerifyWalletInput = z.infer<typeof verifyWalletInputSchema>;
 export type WalletView = z.infer<typeof walletViewSchema>;
 export type MintPassResult = z.infer<typeof mintPassResultSchema>;
+export type VerificationStatus = z.infer<typeof verificationStatusSchema>;
+export type PassVerificationOnChainStatus = z.infer<
+  typeof passVerificationOnChainStatusSchema
+>;
+export type CheckInMethod = z.infer<typeof checkInMethodSchema>;
+export type CheckInInput = z.infer<typeof checkInInputSchema>;
+export type VerifyPassResponse = z.infer<typeof verifyPassResponseSchema>;
+export type CheckInResponse = z.infer<typeof checkInResponseSchema>;

@@ -28,6 +28,7 @@ model User {
   accounts         Account[]
   organizedEvents  Event[]
   ownedPasses      Pass[]
+  verifiedCheckIns CheckIn[]
   wallet           Wallet?
   walletChallenges WalletChallenge[]
 
@@ -102,6 +103,7 @@ model Event {
   organizer     User         @relation(fields: [organizerId], references: [id], onDelete: Restrict)
   ticketTypes   TicketType[]
   passes        Pass[]
+  checkIns      CheckIn[]
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -137,6 +139,11 @@ enum PassStatus {
   REVOKED
 }
 
+enum CheckInMethod {
+  MANUAL
+  QR
+}
+
 model Pass {
   id              String     @id @default(cuid())
   eventId         String
@@ -152,12 +159,29 @@ model Pass {
   chainId         Int?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
+  checkIn         CheckIn?
 
   @@unique([ticketTypeId, ownerId])
   @@unique([contractAddress, tokenId])
   @@unique([mintTxHash])
   @@index([ownerId, createdAt])
   @@index([eventId])
+}
+
+model CheckIn {
+  id           String        @id @default(cuid())
+  passId       String        @unique
+  pass         Pass          @relation(fields: [passId], references: [id], onDelete: Restrict)
+  eventId      String
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  verifiedById String
+  verifiedBy   User          @relation(fields: [verifiedById], references: [id], onDelete: Restrict)
+  method       CheckInMethod @default(MANUAL)
+  verifiedAt   DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+
+  @@index([eventId, verifiedAt])
+  @@index([verifiedById, verifiedAt])
 }
 
 model Wallet {

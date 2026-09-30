@@ -4,7 +4,7 @@
 
 ## 1. 当前状态与目标链路
 
-当前业务 Contract 包含 Event/TicketType、公开浏览、Pass 领取与列表、Wallet 签名绑定及 Blockchain Mint。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。CheckIn Contract 尚未实现。
+当前业务 Contract 包含 Event/TicketType、公开浏览、Pass 领取与列表、Wallet 签名绑定、Blockchain Mint，以及 Merchant Verify/Check-in。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。
 
 Event 接口边界如下：
 
@@ -23,6 +23,8 @@ Event 接口边界如下：
 | `POST` | `/wallets/verify`                   | authenticated   | 验证 challenge、签名和地址后绑定 Wallet                             |
 | `GET`  | `/wallets/me`                       | authenticated   | 返回当前 Session User 的已验证 Wallet；未绑定返回 `null`            |
 | `POST` | `/passes/:passId/mint`              | owner           | 将自己的 ACTIVE Pass Mint 到已验证 Wallet；重复请求返回同一链上结果 |
+| `GET`  | `/passes/:passId/verify`            | organizer/admin | 只读核验 Pass、活动归属、状态与可选链上 Ownership                   |
+| `POST` | `/passes/:passId/check-in`          | organizer/admin | 原子创建 CheckIn 并执行 `ACTIVE → CHECKED_IN`                       |
 
 发布 Event 前服务端按 Authentication → Permission → Ownership → Business Rule 校验：merchant 只能发布自己组织的 Event，admin 可发布任意 Event；Event 必须存在、时间范围合法，并至少拥有一个 `ACTIVE` TicketType。缺少可发行票种返回 `400 EVENT_HAS_NO_ACTIVE_TICKET_TYPES`。
 
@@ -35,6 +37,10 @@ Claim Pass 请求不接受可信身份或库存字段；`ownerId` 固定来自 `
 Wallet 请求不能提交 `userId`。Challenge 绑定 Session User、canonical EVM address、chain ID、nonce、签发/过期时间，验证成功后原子标记已使用；同一 User 与同一 canonical address 均只能绑定一次。连接钱包不等于已验证绑定。
 
 Mint 请求不能提交 recipient。API 从 Session 校验 Pass ownership，再从 Wallet 表取得目标地址；仅 `ACTIVE` 且未 Mint 的 Pass 可执行。服务端 issuer 等待 receipt、解析 `PassMinted`、验证 `ownerOf` 后一次写入完整链上字段。`tokenId` 以十进制字符串返回；已 Mint 或链成功但 DB 未落库的重试通过 `passHash → tokenId` 恢复，避免第二笔 Mint。
+
+Verify 是只读操作：merchant 只能核验自己组织的 Event 下的 Pass，admin 可核验任意 Pass，普通 user 无权限。响应以 `VALID`、`ALREADY_CHECKED_IN`、`REVOKED`、`INVALID` 区分业务状态，并返回最小 Event、TicketType、Holder 与已有 CheckIn 信息。未 Mint 返回 `NOT_MINTED`；链上 owner 与已绑定 Wallet 一致返回 `VERIFIED`；不一致返回 `MISMATCH`；RPC 或链配置暂时不可用返回 `UNAVAILABLE`。链上状态是增强信息，不阻塞数据库中有效的 Off-chain Pass 核销。
+
+Check-in 请求只接受 `method`（当前 Web 使用 `MANUAL`），`verifiedById` 固定来自 Better Auth Session。服务端重新执行 Permission、Event Ownership 与 Pass 状态校验；条件状态更新和 CheckIn 创建位于同一事务，`CheckIn.passId` 唯一约束是最终防重。重复或并发失败返回 `409 PASS_ALREADY_CHECKED_IN`。
 
 TicketType 的 `price` 以最小货币单位的非负整数写入 PostgreSQL `BIGINT`；创建请求使用 JavaScript 安全整数，响应使用十进制字符串避免 JSON/JavaScript 精度损失，`"0"` 表示免费票。`claimedCount` 由服务端初始化为 `0`，客户端不能提交。Merchant 创建票种前必须通过 Event ownership 校验，admin 可以代管，查询接口保持为已登录用户可读的简单列表。
 
@@ -83,7 +89,7 @@ DTO 和 OpenAPI metadata 必须同步。Web/Mobile 通过 `@chainpass/api-client
 
 ## 4. API Client 规则
 
-`@chainpass/api-client` 是 Web 与 Mobile 的统一业务访问层。当前 Web 还通过 `createWalletChallenge`、`verifyWallet`、`getMyWallet` 和 `mintPass` 消费 Wallet/Mint Contract。它应：
+`@chainpass/api-client` 是 Web 与 Mobile 的统一业务访问层。当前 Web 通过 `createWalletChallenge`、`verifyWallet`、`getMyWallet`、`mintPass`、`verifyPass` 和 `checkInPass` 消费相应 Contract。它应：
 
 - 从 OpenAPI 生成类型/Client，或在生成链路落地前集中维护唯一实现；
 - 使用调用方提供的 base URL 和平台适配的 Session/Cookie transport；

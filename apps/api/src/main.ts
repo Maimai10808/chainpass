@@ -7,6 +7,8 @@ async function bootstrap() {
     bodyParser: false,
   });
 
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   app.enableCors({
     origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
     credentials: true,
@@ -23,7 +25,7 @@ async function bootstrap() {
     jsonDocumentUrl: 'docs/openapi.json',
   });
 
-  await app.listen(process.env.PORT ?? 3001);
+  await app.listen(process.env.PORT ?? 3001, '0.0.0.0');
 }
 
 await bootstrap();

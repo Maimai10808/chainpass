@@ -1,0 +1,145 @@
+name: chainpass-prod
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  migrate:
+    image: chainpass-api-migrate:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+      target: migrate
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: chainpass-api:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+      target: runner
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${PUBLIC_URL:?Set PUBLIC_URL}
+      WEB_ORIGIN: ${PUBLIC_URL:?Set PUBLIC_URL}
+      CHAIN_ID: ${CHAIN_ID:-11155111}
+      CHAIN_RPC_URL: ${CHAIN_RPC_URL:?Set CHAIN_RPC_URL}
+      CHAINPASS_CONTRACT_ADDRESS: ${CHAINPASS_CONTRACT_ADDRESS:?Set CHAINPASS_CONTRACT_ADDRESS}
+      DEPLOYER_PRIVATE_KEY: ${DEPLOYER_PRIVATE_KEY:?Set DEPLOYER_PRIVATE_KEY}
+      QR_VERIFICATION_SECRET: ${QR_VERIFICATION_SECRET:?Set QR_VERIFICATION_SECRET}
+    expose:
+      - "3001"
+    networks:
+      - edge
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  web:
+    image: chainpass-web:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      target: runner
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_URL:?Set PUBLIC_URL}/api
+        NEXT_PUBLIC_AUTH_URL: ${PUBLIC_URL:?Set PUBLIC_URL}
+        NEXT_PUBLIC_APP_URL: ${PUBLIC_URL:?Set PUBLIC_URL}
+        NEXT_PUBLIC_CHAIN_ID: ${CHAIN_ID:-11155111}
+        NEXT_PUBLIC_CHAINPASS_CONTRACT_ADDRESS: ${CHAINPASS_CONTRACT_ADDRESS:?Set CHAINPASS_CONTRACT_ADDRESS}
+        NEXT_PUBLIC_REOWN_PROJECT_ID: ${NEXT_PUBLIC_REOWN_PROJECT_ID:-}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    expose:
+      - "3000"
+    networks:
+      - edge
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  nginx:
+    image: chainpass-nginx:${IMAGE_TAG:-local}
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    networks:
+      - edge
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+volumes:
+  postgres_data:
+
+networks:
+  edge:
+  backend:
+    internal: true

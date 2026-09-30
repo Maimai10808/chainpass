@@ -15,7 +15,7 @@
 - Mobile 已实现 Better Auth 登录注册、公开活动列表/详情、Claim、My Passes、Pass Detail 与服务端签发的动态 QR；Merchant Scanner、Wallet Binding 和 Mint 操作仍只在 Web 提供。
 - `@chainpass/api-client` 与 `@chainpass/schemas` 承载业务边界；`@chainpass/web3` 共享实际合约 ABI、Ethereum Sepolia 配置、地址规范化和 Pass Hash 规则。
 - Solidity `ChainPass` 是 issuer-only、non-transferable ERC-721，按 database Pass hash 防重复 Mint；当前版本已部署至 Ethereum Sepolia，公开地址与广播记录见 `contracts/deployments/sepolia.json`。
-- `infra/docker-compose.yml` 当前只启动本地 PostgreSQL；Nginx、Web/API 容器与生产部署尚未实现。
+- `infra/docker-compose.yml` 启动本地 PostgreSQL；`infra/docker-compose.prod.yml` 提供 Nginx、Web、API 与 PostgreSQL 的单服务器生产拓扑，部署步骤见 `docs/DEPLOYMENT.md`。
 
 以上状态是后续实现的起点，不是目标能力已经交付的声明。
 
@@ -34,7 +34,7 @@ packages/
   config/       共享 TypeScript 等工程配置
 
 contracts/      Solidity / Foundry 合约工程
-infra/          本地基础设施与后续部署入口
+infra/          本地 PostgreSQL 与单服务器 Docker/Nginx 部署入口
 docs/           跨应用工程约束
 ```
 
@@ -201,7 +201,7 @@ Better Auth `User` 是业务身份主体；Wallet 是可关联的身份/账户�
 
 `contracts` 使用 Solidity 0.8.28、Foundry 和 OpenZeppelin。`ChainPass.sol` 由合约 owner 作为平台 issuer，按 Pass hash 唯一 Mint，并暂时禁止 transfer 以保持链上 owner 与 `Pass.ownerId` 一致。构建后的 ABI 由 `pnpm web3:sync-abi` 同步到 `@chainpass/web3`；private key 只存在 API/Foundry 服务端环境。
 
-`infra` 当前只定义 PostgreSQL 17 的本地 Docker Compose 服务。Web、API、Nginx 或集群部署属于后续增量；三天 MVP 阶段以可重复的单体 API + PostgreSQL + 客户端部署为目标，不预先设计集群、服务网格或消息基础设施。
+`infra` 保留 PostgreSQL 17 的开发 Compose，并提供生产 Compose：Nginx 是唯一公开入口，`/` 代理 Next.js，`/api/*` 代理 NestJS，Web/API/PostgreSQL 仅通过内部 Docker network 通信。生产启动在 PostgreSQL health 通过后运行 `prisma migrate deploy`，再依次启动 API、Web 与 Nginx；Secret 只通过服务器运行时环境注入。该方案只面向单服务器手工部署，不引入集群、服务网格或消息基础设施。
 
 ## 9. Dependency Rules
 

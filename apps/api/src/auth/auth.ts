@@ -10,6 +10,7 @@ import { ac, roles } from './permissions.js';
 
 const secret = process.env.BETTER_AUTH_SECRET;
 const baseURL = process.env.BETTER_AUTH_URL;
+const webOrigin = process.env.WEB_ORIGIN;
 
 if (!secret) {
   throw new Error('BETTER_AUTH_SECRET is not set');
@@ -32,12 +33,14 @@ export const auth = betterAuth({
   },
 
   trustedOrigins: [
-    'http://localhost:3000',
-    'http://localhost:8081',
     'chainpass://',
+
+    ...(webOrigin ? [webOrigin] : []),
 
     ...(process.env.NODE_ENV !== 'production'
       ? [
+          'http://localhost:3000',
+          'http://localhost:8081',
           'exp://',
           'exp://**',
           'exp://192.168.*.*:*/**',

@@ -44,10 +44,12 @@ Check-in
 - Merchant Verify / Check-in Vertical Slice：Event Ownership 核验、只读 Pass Verify、原子 CheckIn、防并发重复核销与 Merchant Web 操作页。
 - Dynamic QR Verification Vertical Slice：短时 HMAC Credential、用户动态 QR、Merchant 摄像头扫描，以及复用既有 Verify/Check-in。
 - Mobile User Experience Vertical Slice：Better Auth Expo/SecureStore 登录、公开活动浏览、Claim、My Passes、Pass Detail 与动态 QR 展示。
+- Production Deployment Artifacts：Web/API production image、Nginx same-origin routing、PostgreSQL persistence/health、Prisma deploy migration 与单服务器操作文档。
 
 尚未实现或尚未接通：
 
 - Mobile Merchant Scanner、Wallet Binding 与 Mint 操作；
+- 真实服务器部署、域名 DNS 与 HTTPS 验收（需要目标服务器 SSH 与域名配置）；
 
 因此后续任务应以完成 Vertical Slice 为目标，不能把骨架目录视为已交付能力。
 
@@ -97,7 +99,7 @@ Done
 9. QR Code：只编码不可伪造或可服务端验证的最小凭证，不承载可信业务状态。**已完成（Web）**
 10. Mobile UX：覆盖用户登录、活动浏览、领取、My Pass 与动态二维码。**已完成（用户端）**
 11. UI Polish：只优化已跑通的主流程。
-12. Server Deployment：主链稳定后完成最小可演示部署。
+12. Server Deployment：单服务器 Docker/Nginx artifacts 已完成；真实服务器、域名与 HTTPS 验收待部署访问条件。
 
 如果 Demo 风险要求调整次序，应保留同样的端到端闭环和权限约束。
 

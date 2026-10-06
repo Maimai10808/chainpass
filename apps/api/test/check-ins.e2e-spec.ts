@@ -32,7 +32,7 @@ describe('Merchant pass verification and check-in', () => {
       .useValue(() => qrNow)
       .compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ bodyParser: false });
     await app.init();
   });
 

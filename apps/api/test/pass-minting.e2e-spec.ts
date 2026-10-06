@@ -57,7 +57,7 @@ describe('Pass minting', () => {
       .useValue(fakeBlockchain)
       .compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ bodyParser: false });
     await app.init();
   });
 

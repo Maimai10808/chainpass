@@ -20,7 +20,7 @@ describe('Wallet binding', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ bodyParser: false });
     await app.init();
   });
 

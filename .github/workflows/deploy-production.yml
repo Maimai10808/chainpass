@@ -1,0 +1,369 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY to deploy main to production'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: chainpass-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Production
+    if: github.ref == 'refs/heads/main' && inputs.confirm == 'DEPLOY'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    env:
+      PROD_HOST: 124.71.227.47
+      PROD_USER: root
+
+      PUBLIC_URL: http://124.71.227.47
+      CHAIN_ID: "11155111"
+      CHAINPASS_CONTRACT_ADDRESS: "0xbA3e9bCbe448E928c5e71f4bE6415E7e0e3E5ABb"
+
+      # Public browser configuration. Empty is allowed for now.
+      NEXT_PUBLIC_REOWN_PROJECT_ID: ${{ vars.PROD_REOWN_PROJECT_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Require successful CI for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          run_id="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=success&per_page=1" \
+              --jq '.workflow_runs[0].id // empty'
+          )"
+
+          if [[ -z "${run_id}" ]]; then
+            echo "No successful CI workflow found for ${GITHUB_SHA}."
+            echo "Run CI successfully on main before deploying."
+            exit 1
+          fi
+
+          echo "Verified successful CI run: ${run_id}"
+
+      - name: Set release tag
+        run: |
+          set -euo pipefail
+
+          short_sha="${GITHUB_SHA::7}"
+          image_tag="$(date -u +%Y%m%d)-${short_sha}"
+
+          echo "IMAGE_TAG=${image_tag}" >> "${GITHUB_ENV}"
+          echo "Release tag: ${image_tag}"
+
+      - name: Build API image
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --platform linux/amd64 \
+            -f apps/api/Dockerfile \
+            --target runner \
+            -t "chainpass-api:${IMAGE_TAG}" \
+            .
+
+      - name: Build migration image
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --platform linux/amd64 \
+            -f apps/api/Dockerfile \
+            --target migrate \
+            -t "chainpass-api-migrate:${IMAGE_TAG}" \
+            .
+
+      - name: Build Web image
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --platform linux/amd64 \
+            -f apps/web/Dockerfile \
+            --target runner \
+            -t "chainpass-web:${IMAGE_TAG}" \
+            --build-arg NEXT_PUBLIC_API_URL="${PUBLIC_URL}/api" \
+            --build-arg NEXT_PUBLIC_AUTH_URL="${PUBLIC_URL}" \
+            --build-arg NEXT_PUBLIC_APP_URL="${PUBLIC_URL}" \
+            --build-arg NEXT_PUBLIC_CHAIN_ID="${CHAIN_ID}" \
+            --build-arg NEXT_PUBLIC_CHAINPASS_CONTRACT_ADDRESS="${CHAINPASS_CONTRACT_ADDRESS}" \
+            --build-arg NEXT_PUBLIC_REOWN_PROJECT_ID="${NEXT_PUBLIC_REOWN_PROJECT_ID}" \
+            .
+
+      - name: Build Nginx image
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --platform linux/amd64 \
+            -f infra/nginx/Dockerfile \
+            -t "chainpass-nginx:${IMAGE_TAG}" \
+            infra/nginx
+
+      - name: Pull PostgreSQL runtime image
+        run: |
+          set -euo pipefail
+
+          docker pull --platform linux/amd64 postgres:17-alpine
+
+      - name: Verify image architectures
+        run: |
+          set -euo pipefail
+
+          images=(
+            "chainpass-api:${IMAGE_TAG}"
+            "chainpass-api-migrate:${IMAGE_TAG}"
+            "chainpass-web:${IMAGE_TAG}"
+            "chainpass-nginx:${IMAGE_TAG}"
+            "postgres:17-alpine"
+          )
+
+          for image in "${images[@]}"; do
+            platform="$(docker image inspect \
+              --format '{{.Os}}/{{.Architecture}}' \
+              "${image}")"
+
+            echo "${image}: ${platform}"
+
+            if [[ "${platform}" != "linux/amd64" ]]; then
+              echo "Unexpected image platform for ${image}: ${platform}"
+              exit 1
+            fi
+          done
+
+      - name: Package release
+        run: |
+          set -euo pipefail
+
+          release_dir="${RUNNER_TEMP}/chainpass-release-${IMAGE_TAG}"
+          archive="chainpass-images-${IMAGE_TAG}.tar.gz"
+
+          mkdir -p "${release_dir}"
+
+          docker save \
+            "chainpass-api:${IMAGE_TAG}" \
+            "chainpass-api-migrate:${IMAGE_TAG}" \
+            "chainpass-web:${IMAGE_TAG}" \
+            "chainpass-nginx:${IMAGE_TAG}" \
+            postgres:17-alpine \
+            | gzip > "${release_dir}/${archive}"
+
+          cp infra/docker-compose.prod.yml "${release_dir}/"
+          cp infra/nginx/teaching-server.conf "${release_dir}/"
+          cp infra/scripts/deploy.sh "${release_dir}/"
+
+          (
+            cd "${release_dir}"
+            sha256sum \
+              "${archive}" \
+              docker-compose.prod.yml \
+              teaching-server.conf \
+              deploy.sh \
+              > SHA256SUMS
+          )
+
+          echo "RELEASE_DIR=${release_dir}" >> "${GITHUB_ENV}"
+          echo "Release package prepared at ${release_dir}"
+
+      - name: Configure SSH
+        env:
+          PROD_SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+          PROD_SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${PROD_SSH_PRIVATE_KEY}" ]]; then
+            echo "PROD_SSH_PRIVATE_KEY is not configured."
+            exit 1
+          fi
+
+          if [[ -z "${PROD_SSH_KNOWN_HOSTS}" ]]; then
+            echo "PROD_SSH_KNOWN_HOSTS is not configured."
+            exit 1
+          fi
+
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+
+          printf '%s\n' "${PROD_SSH_PRIVATE_KEY}" \
+            > "${HOME}/.ssh/chainpass_production"
+
+          printf '%s\n' "${PROD_SSH_KNOWN_HOSTS}" \
+            > "${HOME}/.ssh/known_hosts"
+
+          chmod 600 "${HOME}/.ssh/chainpass_production"
+          chmod 600 "${HOME}/.ssh/known_hosts"
+
+      - name: Verify production SSH
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i "${HOME}/.ssh/chainpass_production" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "${PROD_USER}@${PROD_HOST}" \
+            'echo "Production SSH connection verified."'
+
+      - name: Create release directory
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i "${HOME}/.ssh/chainpass_production" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "${PROD_USER}@${PROD_HOST}" \
+            "mkdir -p '/home/chainpass/releases/${IMAGE_TAG}'"
+
+      - name: Transfer release
+        run: |
+          set -euo pipefail
+
+          scp \
+            -i "${HOME}/.ssh/chainpass_production" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "${RELEASE_DIR}/chainpass-images-${IMAGE_TAG}.tar.gz" \
+            "${RELEASE_DIR}/SHA256SUMS" \
+            "${RELEASE_DIR}/docker-compose.prod.yml" \
+            "${RELEASE_DIR}/teaching-server.conf" \
+            "${RELEASE_DIR}/deploy.sh" \
+            "${PROD_USER}@${PROD_HOST}:/home/chainpass/releases/${IMAGE_TAG}/"
+
+      - name: Load images and deploy
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i "${HOME}/.ssh/chainpass_production" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "${PROD_USER}@${PROD_HOST}" \
+            bash -s -- "${IMAGE_TAG}" <<'REMOTE'
+          set -euo pipefail
+
+          IMAGE_TAG="$1"
+          RELEASE_DIR="/home/chainpass/releases/${IMAGE_TAG}"
+          ENV_FILE="/home/chainpass/.env.production"
+          BACKUP_DIR="/home/chainpass/backups"
+
+          cd "${RELEASE_DIR}"
+
+          echo "Verifying release checksums..."
+          sha256sum --check SHA256SUMS
+
+          echo "Loading release images..."
+          gzip -dc "chainpass-images-${IMAGE_TAG}.tar.gz" | docker load
+
+          echo "Verifying required environment file..."
+          test -f "${ENV_FILE}"
+          test "$(stat -c '%a' "${ENV_FILE}")" = "600"
+
+          echo "Creating database backup before migrations..."
+          mkdir -p "${BACKUP_DIR}"
+
+          postgres_container="$(
+            docker ps \
+              --filter label=com.docker.compose.project=chainpass \
+              --filter label=com.docker.compose.service=postgres \
+              --format '{{.ID}}' \
+              | head -n 1
+          )"
+
+          if [[ -n "${postgres_container}" ]]; then
+            backup="${BACKUP_DIR}/pre-${IMAGE_TAG}.dump"
+
+            docker exec "${postgres_container}" \
+              sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
+              > "${backup}"
+
+            test -s "${backup}"
+            echo "Database backup created: ${backup}"
+          else
+            echo "No running ChainPass PostgreSQL container found; skipping pre-deploy backup."
+          fi
+
+          echo "Preparing release environment..."
+          release_env="$(mktemp)"
+          trap 'rm -f "${release_env}"' EXIT
+
+          cp "${ENV_FILE}" "${release_env}"
+          chmod 600 "${release_env}"
+
+          if grep -q '^IMAGE_TAG=' "${release_env}"; then
+            sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${IMAGE_TAG}/" "${release_env}"
+          else
+            printf '\nIMAGE_TAG=%s\n' "${IMAGE_TAG}" >> "${release_env}"
+          fi
+
+          chmod +x ./deploy.sh
+
+          echo "Deploying ChainPass..."
+          CHAINPASS_COMPOSE_PROJECT=chainpass \
+          CHAINPASS_COMPOSE_FILE="${RELEASE_DIR}/docker-compose.prod.yml" \
+          CHAINPASS_ENV_FILE="${release_env}" \
+          CHAINPASS_SMOKE_URL=http://127.0.0.1:18081 \
+            bash ./deploy.sh
+
+          echo "Persisting active release tag..."
+          if grep -q '^IMAGE_TAG=' "${ENV_FILE}"; then
+            sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${IMAGE_TAG}/" "${ENV_FILE}"
+          else
+            printf '\nIMAGE_TAG=%s\n' "${IMAGE_TAG}" >> "${ENV_FILE}"
+          fi
+
+          chmod 600 "${ENV_FILE}"
+
+          echo "Checking public system Nginx route..."
+          curl --fail --silent --show-error \
+            http://124.71.227.47/api/health
+
+          curl --fail --silent --show-error \
+            --output /dev/null \
+            http://124.71.227.47/
+
+          echo "Production deployment completed: ${IMAGE_TAG}"
+          REMOTE
+
+      - name: Verify production from GitHub runner
+        run: |
+          set -euo pipefail
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 5 \
+            --retry-delay 3 \
+            --retry-all-errors \
+            "${PUBLIC_URL}/api/health"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --output /dev/null \
+            --retry 5 \
+            --retry-delay 3 \
+            --retry-all-errors \
+            "${PUBLIC_URL}/"
+
+          echo "Public production smoke checks passed."

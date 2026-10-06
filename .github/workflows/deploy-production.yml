@@ -323,15 +323,6 @@ jobs:
           CHAINPASS_SMOKE_URL=http://127.0.0.1:18081 \
             bash ./deploy.sh
 
-          echo "Persisting active release tag..."
-          if grep -q '^IMAGE_TAG=' "${ENV_FILE}"; then
-            sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${IMAGE_TAG}/" "${ENV_FILE}"
-          else
-            printf '\nIMAGE_TAG=%s\n' "${IMAGE_TAG}" >> "${ENV_FILE}"
-          fi
-
-          chmod 600 "${ENV_FILE}"
-
           echo "Checking public system Nginx route..."
           curl --fail --silent --show-error \
             http://124.71.227.47/api/health
@@ -341,6 +332,41 @@ jobs:
             http://124.71.227.47/
 
           echo "Production deployment completed: ${IMAGE_TAG}"
+          REMOTE
+
+      - name: Persist active release tag
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i "${HOME}/.ssh/chainpass_production" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "${PROD_USER}@${PROD_HOST}" \
+            bash -s -- "${IMAGE_TAG}" <<'REMOTE'
+          set -euo pipefail
+
+          IMAGE_TAG="$1"
+          ENV_FILE="/home/chainpass/.env.production"
+
+          test -f "${ENV_FILE}"
+
+          if grep -q '^IMAGE_TAG=' "${ENV_FILE}"; then
+            sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${IMAGE_TAG}/" "${ENV_FILE}"
+          else
+            printf '\nIMAGE_TAG=%s\n' "${IMAGE_TAG}" >> "${ENV_FILE}"
+          fi
+
+          chmod 600 "${ENV_FILE}"
+
+          active_tag="$(sed -n 's/^IMAGE_TAG=//p' "${ENV_FILE}" | tail -n 1)"
+
+          if [[ "${active_tag}" != "${IMAGE_TAG}" ]]; then
+            echo "Failed to persist active release tag."
+            exit 1
+          fi
+
+          echo "Active production release: ${active_tag}"
           REMOTE
 
       - name: Verify production from GitHub runner

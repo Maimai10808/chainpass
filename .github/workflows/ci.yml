@@ -31,6 +31,10 @@ jobs:
       TURBO_TELEMETRY_DISABLED: "1"
       NEXT_TELEMETRY_DISABLED: "1"
 
+      # CI-only database URL. Unit tests require DATABASE_URL during module loading.
+      # PostgreSQL itself is added later for integration/E2E tests.
+      DATABASE_URL: postgresql://chainpass:chainpass@127.0.0.1:5432/chainpass
+
       # CI build-only values.
       # These are not production deployment settings.
       NEXT_PUBLIC_API_URL: http://localhost:3000/api

@@ -12,7 +12,9 @@ FROM base AS pruner
 
 COPY . .
 
-RUN turbo prune web --docker
+# Keep standalone packaging independent of Expo's hoisted development layout.
+RUN pnpm config set nodeLinker isolated --location project \
+  && turbo prune web --docker
 
 FROM base AS dependencies
 

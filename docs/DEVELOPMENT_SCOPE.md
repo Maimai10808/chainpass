@@ -43,6 +43,7 @@ Check-in
 - Ethereum Sepolia Deployment：`ChainPass` 已部署至 chain ID `11155111`，完成 bytecode/owner/ERC-721 metadata 读取、Sourcify 精确匹配验证、真实 smoke mint，以及经 Better Auth、Wallet Binding、NestJS Mint API 与 PostgreSQL 回写的 application-level mint E2E；部署公开证据记录于 `contracts/deployments/sepolia.json`。
 - Merchant Verify / Check-in Vertical Slice：Event Ownership 核验、只读 Pass Verify、原子 CheckIn、防并发重复核销与 Merchant Web 操作页。
 - Dynamic QR Verification Vertical Slice：短时 HMAC Credential、用户动态 QR、Merchant 摄像头扫描，以及复用既有 Verify/Check-in。
+- Web 产品界面：正式 Auth、统一角色导航、公开首页/活动、User Pass 票面与钱包/Mint/QR、Merchant Dashboard/活动/核销、Admin Dashboard/用户提升 Merchant/平台活动。数据来自现有 API 与最小受限活动列表接口；无支付、活动编辑/删除、Admin 自助注册或复杂统计。
 - Mobile User Experience Vertical Slice：Better Auth Expo/SecureStore 登录、公开活动浏览、Claim、My Passes、Pass Detail 与动态 QR 展示。
 - Production Deployment Artifacts：Web/API production image、Nginx same-origin routing、PostgreSQL persistence/health、Prisma deploy migration 与单服务器操作文档。
 - Huawei Cloud Production / CI/CD：HTTP 单服务器部署、main/develop CI 与人工触发的 GitHub Production Deploy 已有成功记录；生产四容器健康、数据库连接与公网入口已只读复核。具体 release、尚未进入 main 的 workflow 加固与配置漂移见 [DEPLOYMENT.md](./DEPLOYMENT.md)，不能把健康检查视为所有生产业务已验收。

@@ -1,46 +1,50 @@
 "use client";
 
-import { ApiClientError, type WalletView } from "@chainpass/api-client";
-import { CHAINPASS_SEPOLIA_CHAIN_ID } from "@chainpass/web3";
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useAccount,
   useDisconnect,
   useSignMessage,
   useSwitchChain,
 } from "wagmi";
-
+import { toast } from "sonner";
+import { CHAINPASS_SEPOLIA_CHAIN_ID } from "@chainpass/web3";
+import { Wallet, ShieldCheck } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
+import { useSession } from "@/lib/auth-client";
 import {
-  isWalletConnectConfigured,
   openWalletConnect,
+  isWalletConnectConfigured,
 } from "@/lib/web3-config";
+import { errorMessage, shorten } from "@/lib/presentation";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import type { WalletView } from "@chainpass/api-client";
 
-export function WalletPanel({
-  wallet,
-  onVerified,
-}: {
-  wallet: WalletView | null;
-  onVerified: (wallet: WalletView) => void;
-}) {
+export function WalletPanel({ wallet }: { wallet: WalletView | null }) {
+  const { data: session } = useSession();
   const { address, chainId, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const { signMessageAsync } = useSignMessage();
-  const { switchChainAsync } = useSwitchChain();
-  const [isBinding, setIsBinding] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const walletMismatch = Boolean(
+  const { switchChainAsync, isPending: switching } = useSwitchChain();
+  const cache = useQueryClient();
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const mismatch = Boolean(
     wallet && address && wallet.address.toLowerCase() !== address.toLowerCase(),
   );
-
-  async function verifyAndBind() {
-    if (!address || !chainId || isBinding) return;
-    setIsBinding(true);
-    setMessage(null);
-    setError(null);
-
-    try {
+  const bind = useMutation({
+    mutationFn: async () => {
+      if (!address || chainId !== CHAINPASS_SEPOLIA_CHAIN_ID)
+        throw new Error("Connect to Ethereum Sepolia first.");
       const challenge = await apiClient.createWalletChallenge({
         address,
         chainId,
@@ -49,135 +53,144 @@ export function WalletPanel({
         account: address,
         message: challenge.message,
       });
-      const verified = await apiClient.verifyWallet({
+      return apiClient.verifyWallet({
         challengeId: challenge.id,
         address,
         signature,
       });
-      onVerified(verified);
-      setMessage("Wallet verified and bound successfully.");
-    } catch (caught) {
-      setError(
-        caught instanceof ApiClientError || caught instanceof Error
-          ? caught.message
-          : "Unable to verify this wallet.",
-      );
-    } finally {
-      setIsBinding(false);
+    },
+    onSuccess: (result) => {
+      cache.setQueryData(["wallet", session?.user.id], result);
+      toast.success("Wallet ownership verified and bound");
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  async function connect() {
+    setConnectionError(null);
+    try {
+      await openWalletConnect();
+    } catch {
+      setConnectionError("Unable to open your wallet. Please try again.");
     }
   }
-
-  async function switchToSepolia() {
-    setError(null);
+  async function switchNetwork() {
+    setConnectionError(null);
     try {
       await switchChainAsync({ chainId: CHAINPASS_SEPOLIA_CHAIN_ID });
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Unable to switch wallet network.",
+    } catch {
+      setConnectionError(
+        "Network switch declined. Select Ethereum Sepolia in your wallet.",
       );
     }
   }
-
   return (
-    <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium text-blue-700">Wallet</p>
-          <h2 className="mt-1 text-xl font-semibold">
-            {wallet ? shortenAddress(wallet.address) : "No verified wallet"}
-          </h2>
-          <p className="mt-2 text-sm text-zinc-600">
-            {wallet
-              ? `Verified on chain ${wallet.chainId}`
-              : "Connect a wallet and sign a one-time challenge to bind it."}
-          </p>
-        </div>
-
-        {isConnected ? (
-          <button
-            className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium"
-            onClick={() => disconnect()}
-            type="button"
-          >
-            Disconnect
-          </button>
-        ) : (
-          <button
-            className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!isWalletConnectConfigured}
-            onClick={() => void openWalletConnect()}
-            type="button"
-          >
-            Connect Wallet
-          </button>
-        )}
-      </div>
-
-      {!isWalletConnectConfigured ? (
-        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Wallet connection is unavailable. Configure
-          NEXT_PUBLIC_REOWN_PROJECT_ID for this environment.
-        </p>
-      ) : null}
-
-      {isConnected && address ? (
-        <div className="mt-5 rounded-xl bg-zinc-50 p-4 text-sm">
-          <p className="font-medium">Connected wallet</p>
-          <p className="mt-1 break-all text-zinc-600">{address}</p>
-          <p className="mt-1 text-zinc-600">Chain {chainId}</p>
-
-          {walletMismatch ? (
-            <p
-              className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-red-700"
-              role="alert"
-            >
-              Connected wallet does not match your verified bound wallet. The
-              binding will not be replaced.
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Wallet className="size-5 text-primary" />
+          Wallet ownership
+        </CardTitle>
+        <CardDescription>
+          A connection is not a binding. Sign a one-time message to prove this
+          wallet is yours.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {wallet ? (
+          <div className="rounded-lg border border-info/20 bg-info/5 p-4">
+            <p className="flex items-center gap-2 text-body-sm text-info">
+              <ShieldCheck className="size-4" />
+              Verified wallet
             </p>
-          ) : null}
-
-          {!wallet && chainId !== CHAINPASS_SEPOLIA_CHAIN_ID ? (
-            <button
-              className="mt-4 rounded-lg border border-zinc-300 bg-white px-4 py-2 font-medium"
-              onClick={() => void switchToSepolia()}
-              type="button"
-            >
-              Switch to Ethereum Sepolia
-            </button>
-          ) : null}
-
-          {!wallet && chainId === CHAINPASS_SEPOLIA_CHAIN_ID ? (
-            <button
-              className="mt-4 rounded-lg bg-blue-700 px-4 py-2 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isBinding}
-              onClick={() => void verifyAndBind()}
-              type="button"
-            >
-              {isBinding ? "Waiting for signature…" : "Verify & Bind Wallet"}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {message ? (
-        <p className="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          {message}
-        </p>
-      ) : null}
-      {error ? (
-        <p
-          className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
-          role="alert"
-        >
-          {error}
-        </p>
-      ) : null}
-    </section>
+            <p className="mt-2 break-all font-mono text-body-sm">
+              {wallet.address}
+            </p>
+            <p className="mt-2 text-caption text-muted-foreground">
+              {wallet.chainId === CHAINPASS_SEPOLIA_CHAIN_ID
+                ? "Ethereum Sepolia"
+                : "Chain " + wallet.chainId}{" "}
+              · One primary wallet per account
+            </p>
+          </div>
+        ) : (
+          <p className="text-body-sm text-muted-foreground">
+            No verified wallet yet. You can still use your QR without one.
+          </p>
+        )}
+        {isConnected && address && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="font-mono text-body-sm">
+              {shorten(address)} ·{" "}
+              {chainId === CHAINPASS_SEPOLIA_CHAIN_ID
+                ? "Sepolia"
+                : "Chain " + chainId}
+            </span>
+            <Button variant="ghost" onClick={() => disconnect()}>
+              Disconnect
+            </Button>
+          </div>
+        )}
+        {mismatch && (
+          <Alert>
+            <AlertTitle>
+              Connected wallet does not match your binding
+            </AlertTitle>
+            <AlertDescription>
+              Switch to your verified wallet. The primary wallet binding will
+              not be replaced.
+            </AlertDescription>
+          </Alert>
+        )}
+        {!isWalletConnectConfigured && (
+          <Alert>
+            <AlertTitle>Wallet connection unavailable</AlertTitle>
+            <AlertDescription>
+              This environment needs a Reown Project ID. QR admission remains
+              available.
+            </AlertDescription>
+          </Alert>
+        )}
+        {!isConnected ? (
+          <Button
+            variant="outline"
+            className="h-10"
+            disabled={!isWalletConnectConfigured}
+            onClick={() => void connect()}
+          >
+            <Wallet data-icon="inline-start" />
+            Connect wallet
+          </Button>
+        ) : !wallet && chainId !== CHAINPASS_SEPOLIA_CHAIN_ID ? (
+          <Button
+            variant="outline"
+            disabled={switching}
+            onClick={() => void switchNetwork()}
+          >
+            Switch to Ethereum Sepolia
+          </Button>
+        ) : !wallet ? (
+          <Button
+            className="h-10"
+            disabled={bind.isPending}
+            onClick={() => bind.mutate()}
+          >
+            {bind.isPending && <Spinner data-icon="inline-start" />}
+            {bind.isPending ? "Waiting for signature…" : "Sign & bind wallet"}
+          </Button>
+        ) : (
+          <p className="flex items-center gap-2 text-body-sm text-info">
+            <ShieldCheck className="size-4" /> Wallet ownership verified
+          </p>
+        )}
+        {(connectionError || bind.isError) && (
+          <Alert variant="destructive">
+            <AlertTitle>Wallet action failed</AlertTitle>
+            <AlertDescription>
+              {connectionError ?? errorMessage(bind.error)}
+            </AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
   );
-}
-
-function shortenAddress(address: string) {
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }

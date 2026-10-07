@@ -1,428 +1,345 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  ApiClientError,
-  type CreateTicketTypeInput,
-  type EventResponse,
-  type TicketTypeResponse,
-} from "@chainpass/api-client";
-import { createTicketTypeInputSchema } from "@chainpass/schemas";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "sonner";
+import {
+  createTicketTypeInputSchema,
+  type CreateTicketTypeInput,
+} from "@chainpass/schemas";
+import { CheckCircle2, ArrowUpRight, CalendarDays, MapPin } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
-import { useSession } from "@/lib/auth-client";
-
-const optionalText = (value: unknown) =>
-  typeof value === "string" && value.trim() === "" ? undefined : value;
+import {
+  optionalText,
+  formatPrice,
+  formatDate,
+  errorMessage,
+} from "@/lib/presentation";
+import {
+  PageHeading,
+  LoadingCards,
+  ErrorState,
+  EmptyState,
+  StatusBadge,
+  Detail,
+} from "@/components/chainpass/page-kit";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Field,
+  FieldGroup,
+  FieldLabel,
+  FieldError,
+} from "@/components/ui/field";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 export function EventManagement({ eventId }: { eventId: string }) {
-  const { data: session, isPending: isSessionPending } = useSession();
-  const [event, setEvent] = useState<EventResponse | null>(null);
-  const [ticketTypes, setTicketTypes] = useState<TicketTypeResponse[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [publishError, setPublishError] = useState<string | null>(null);
-  const [publishSuccess, setPublishSuccess] = useState<string | null>(null);
-  const [isPublishing, setIsPublishing] = useState(false);
+  const cache = useQueryClient();
+  const [publishOpen, setPublishOpen] = useState(false);
+  const event = useQuery({
+    queryKey: ["managed-event", eventId],
+    queryFn: () => apiClient.getManagedEvent(eventId),
+  });
+  const tickets = useQuery({
+    queryKey: ["ticket-types", eventId],
+    queryFn: () => apiClient.listTicketTypes(eventId),
+    enabled: event.isSuccess,
+  });
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<CreateTicketTypeInput>({
     resolver: zodResolver(createTicketTypeInputSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      totalSupply: 100,
-      price: 0,
-    },
+    defaultValues: { name: "", totalSupply: 100, price: 0 },
   });
-
-  const role = session?.user.role ?? "user";
-  const canUseMerchantFlow = role === "merchant" || role === "admin";
-
-  useEffect(() => {
-    if (isSessionPending || !session || !canUseMerchantFlow) {
-      return;
-    }
-
-    let active = true;
-
-    Promise.all([
-      apiClient.getManagedEvent(eventId),
-      apiClient.listTicketTypes(eventId),
-    ])
-      .then(([eventResult, ticketTypeResult]) => {
-        if (!active) return;
-        setEvent(eventResult);
-        setTicketTypes(ticketTypeResult);
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        setLoadError(getErrorMessage(error, "Unable to load this event."));
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [canUseMerchantFlow, eventId, isSessionPending, session]);
-
-  if (isSessionPending) {
-    return <PageMessage title="Loading event…" />;
+  function refresh() {
+    void cache.invalidateQueries({ queryKey: ["managed-event", eventId] });
+    void cache.invalidateQueries({ queryKey: ["ticket-types", eventId] });
+    void cache.invalidateQueries({ queryKey: ["merchant-events"] });
+    void cache.invalidateQueries({ queryKey: ["admin-events"] });
+    void cache.invalidateQueries({ queryKey: ["events"] });
+    void cache.invalidateQueries({ queryKey: ["event", eventId] });
   }
-
-  if (!session) {
-    return (
-      <PageMessage
-        title="Sign in required"
-        description="Sign in with a merchant or admin account to manage ticket types."
-      >
-        <Link className="font-medium text-blue-700 underline" href="/auth-test">
-          Open sign in
-        </Link>
-      </PageMessage>
-    );
-  }
-
-  if (!canUseMerchantFlow) {
-    return (
-      <PageMessage
-        title="Merchant access required"
-        description="Your account does not have permission to issue tickets."
-      />
-    );
-  }
-
-  if (isLoading) {
-    return <PageMessage title="Loading event…" />;
-  }
-
-  if (loadError || !event) {
-    return (
-      <PageMessage
-        title="Unable to load event"
-        description={loadError ?? "Event not found."}
-      />
-    );
-  }
-
-  const ownsEvent = role === "admin" || event.organizerId === session.user.id;
-
-  if (!ownsEvent) {
-    return (
-      <PageMessage
-        title="Event ownership required"
-        description="Only this event's organizer or an admin can issue ticket types."
-      />
-    );
-  }
-
-  async function onSubmit(input: CreateTicketTypeInput) {
-    setSubmitError(null);
-    setSuccessMessage(null);
-
-    try {
-      const created = await apiClient.createTicketType(eventId, input);
-      setTicketTypes((current) => [...current, created]);
-      setPublishError(null);
-      setSuccessMessage(`${created.name} created successfully.`);
+  const create = useMutation({
+    mutationFn: (input: CreateTicketTypeInput) =>
+      apiClient.createTicketType(eventId, input),
+    onSuccess: () => {
+      refresh();
       reset({ name: "", description: "", totalSupply: 100, price: 0 });
-    } catch (error) {
-      setSubmitError(
-        getErrorMessage(error, "Unable to create the ticket type."),
-      );
-    }
-  }
-
-  async function publishEvent() {
-    if (isPublishing || event?.status !== "DRAFT") return;
-
-    setIsPublishing(true);
-    setPublishError(null);
-    setPublishSuccess(null);
-
-    try {
-      const published = await apiClient.publishEvent(eventId);
-      setEvent(published);
-      setPublishSuccess("Event published successfully.");
-    } catch (error) {
-      setPublishError(getErrorMessage(error, "Unable to publish this event."));
-    } finally {
-      setIsPublishing(false);
-    }
-  }
-
+      toast.success("Ticket type created");
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const publish = useMutation({
+    mutationFn: () => apiClient.publishEvent(eventId),
+    onSuccess: (result) => {
+      cache.setQueryData(["managed-event", eventId], result);
+      refresh();
+      setPublishOpen(false);
+      toast.success("Your event is live");
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  if (event.isPending) return <LoadingCards count={2} />;
+  if (event.isError)
+    return (
+      <ErrorState
+        title="Event management unavailable"
+        error={event.error}
+        retry={() => void event.refetch()}
+      />
+    );
+  const data = event.data;
+  const canPublish =
+    tickets.data?.some((ticket) => ticket.status === "ACTIVE") ?? false;
   return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-12 text-zinc-950">
-      <div className="mx-auto max-w-4xl">
-        <nav className="flex flex-wrap gap-4 text-sm font-medium text-blue-700 underline">
-          <Link href="/merchant/events/new">Create another event</Link>
-          <Link href="/merchant/check-in">Check in a pass</Link>
-        </nav>
-
-        <header className="mt-5 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <p className="text-sm font-medium text-blue-700">
-            Merchant event management
-          </p>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-3xl font-semibold tracking-tight">
-              {event.name}
-            </h1>
-            <span className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium">
-              {event.status}
-            </span>
-          </div>
-          <p className="mt-3 break-all text-sm text-zinc-500">
-            Event ID: {event.id}
-          </p>
-
-          {event.status === "DRAFT" ? (
-            <div className="mt-6 border-t border-zinc-200 pt-5">
-              <p className="text-sm text-zinc-600">
-                Publishing makes this event and its active ticket types visible
-                to everyone. At least one active ticket type is required.
+    <>
+      <PageHeading
+        eyebrow="Merchant / manage"
+        title={data.name}
+        description="Manage inventory and publish your experience."
+        action={<StatusBadge status={data.status} />}
+      />
+      <div className="grid items-start gap-6 xl:grid-cols-[1.2fr_1fr]">
+        <div className="flex flex-col gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Event overview</CardTitle>
+              <CardDescription>
+                {data.description ?? "No description provided."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-5 sm:grid-cols-2">
+                <Detail label="Schedule">
+                  <span className="flex items-start gap-2">
+                    <CalendarDays className="mt-0.5 size-4 shrink-0 text-primary" />
+                    {formatDate(data.startsAt)} — {formatDate(data.endsAt)}
+                  </span>
+                </Detail>
+                <Detail label="Location">
+                  <span className="flex items-center gap-2">
+                    <MapPin className="size-4 text-primary" />
+                    {data.location ?? "Location TBA"}
+                  </span>
+                </Detail>
+                <Detail label="Event ID" mono>
+                  {data.id}
+                </Detail>
+                <Detail label="Organizer ID" mono>
+                  {data.organizerId}
+                </Detail>
+              </dl>
+            </CardContent>
+            <CardFooter className="flex flex-col items-start gap-3">
+              {data.status === "PUBLISHED" ? (
+                <>
+                  <p className="flex items-center gap-2 text-body-sm text-success">
+                    <CheckCircle2 className="size-4" />
+                    Published and discoverable
+                  </p>
+                  <Button
+                    variant="outline"
+                    nativeButton={false}
+                    render={<Link href={"/events/" + data.id} />}
+                  >
+                    Public event
+                    <ArrowUpRight data-icon="inline-end" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-body-sm text-muted-foreground">
+                    {canPublish
+                      ? "Ready to publish. Attendees will be able to claim active passes."
+                      : "Create at least one active ticket type before publishing."}
+                  </p>
+                  <Button
+                    disabled={!canPublish || publish.isPending}
+                    onClick={() => setPublishOpen(true)}
+                  >
+                    Publish event
+                  </Button>
+                </>
+              )}
+              <p className="text-caption text-muted-foreground">
+                Event editing and deletion are not available in this release.
               </p>
-              {publishError ? (
-                <p
-                  className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
-                  role="alert"
-                >
-                  {publishError}
-                </p>
-              ) : null}
-              <button
-                className="mt-4 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isPublishing}
-                onClick={publishEvent}
-                type="button"
-              >
-                {isPublishing ? "Publishing…" : "Publish event"}
-              </button>
-            </div>
-          ) : (
-            <div className="mt-6 flex flex-wrap items-center gap-4 border-t border-zinc-200 pt-5">
-              <Link
-                className="rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-medium text-white"
-                href={`/events/${event.id}`}
-              >
-                View public event
-              </Link>
-              {publishSuccess ? (
-                <p
-                  className="text-sm font-medium text-emerald-700"
-                  aria-live="polite"
-                >
-                  {publishSuccess}
-                </p>
-              ) : null}
-            </div>
-          )}
-        </header>
-
-        <section className="mt-8">
-          <div className="mb-4">
-            <h2 className="text-2xl font-semibold">Ticket types</h2>
-            <p className="mt-1 text-zinc-600">
-              Ticket inventory is stored in PostgreSQL and is not issued
-              on-chain at this stage.
-            </p>
-          </div>
-
-          {ticketTypes.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-6 text-zinc-600">
-              No ticket types yet. Create the first one below.
-            </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {ticketTypes.map((ticketType) => (
-                <article
-                  className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
-                  key={ticketType.id}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="text-lg font-semibold">{ticketType.name}</h3>
-                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">
-                      {ticketType.status}
-                    </span>
-                  </div>
-                  {ticketType.description ? (
-                    <p className="mt-2 text-sm text-zinc-600">
-                      {ticketType.description}
-                    </p>
-                  ) : null}
-                  <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <Metric label="Supply" value={ticketType.totalSupply} />
-                    <Metric label="Claimed" value={ticketType.claimedCount} />
-                    <Metric
-                      label="Price"
-                      value={formatPrice(ticketType.price)}
-                    />
-                    <Metric
-                      label="Remaining"
-                      value={ticketType.totalSupply - ticketType.claimedCount}
-                    />
-                  </dl>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold">Create ticket type</h2>
-          <p className="mt-1 text-sm text-zinc-600">
-            Price is an integer in the smallest currency unit. Use 0 for a free
-            ticket.
-          </p>
-
-          <form className="mt-6 space-y-5" onSubmit={handleSubmit(onSubmit)}>
-            <FormField label="Name" error={errors.name?.message} required>
-              <input
-                className="input"
-                placeholder="General Pass"
-                {...register("name")}
+            </CardFooter>
+          </Card>
+          <section>
+            <h2 className="mb-5 text-h3 font-semibold">Ticket inventory</h2>
+            {tickets.isPending ? (
+              <LoadingCards count={1} />
+            ) : tickets.isError ? (
+              <ErrorState
+                error={tickets.error}
+                retry={() => void tickets.refetch()}
               />
-            </FormField>
-
-            <FormField label="Description" error={errors.description?.message}>
-              <textarea
-                className="input min-h-24 resize-y"
-                placeholder="General admission"
-                {...register("description", { setValueAs: optionalText })}
+            ) : tickets.data.length ? (
+              <div className="flex flex-col gap-4">
+                {tickets.data.map((ticket) => (
+                  <Card key={ticket.id}>
+                    <CardHeader>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <CardTitle>{ticket.name}</CardTitle>
+                        <StatusBadge status={ticket.status} />
+                      </div>
+                      <CardDescription>
+                        {ticket.description ?? "General admission"}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                        <Detail label="Supply" mono>
+                          {ticket.totalSupply}
+                        </Detail>
+                        <Detail label="Claimed" mono>
+                          {ticket.claimedCount}
+                        </Detail>
+                        <Detail label="Remaining" mono>
+                          {ticket.totalSupply - ticket.claimedCount}
+                        </Detail>
+                        <Detail label="Price">
+                          {formatPrice(ticket.price)}
+                        </Detail>
+                      </dl>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                title="No ticket types yet"
+                description="Add your first ticket type to make this event publishable."
               />
-            </FormField>
-
-            <div className="grid gap-5 sm:grid-cols-2">
-              <FormField
-                label="Total supply"
-                error={errors.totalSupply?.message}
-                required
-              >
-                <input
-                  className="input"
-                  min="1"
-                  step="1"
-                  type="number"
-                  {...register("totalSupply", { valueAsNumber: true })}
-                />
-              </FormField>
-
-              <FormField
-                label="Price (minor units)"
-                error={errors.price?.message}
-                required
-              >
-                <input
-                  className="input"
-                  min="0"
-                  step="1"
-                  type="number"
-                  {...register("price", { valueAsNumber: true })}
-                />
-              </FormField>
-            </div>
-
-            {submitError ? (
-              <p
-                className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
-                role="alert"
-              >
-                {submitError}
-              </p>
-            ) : null}
-
-            {successMessage ? (
-              <p
-                className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
-                aria-live="polite"
-              >
-                {successMessage}
-              </p>
-            ) : null}
-
-            <button
-              className="w-full rounded-lg bg-zinc-950 px-4 py-3 font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={isSubmitting}
-              type="submit"
+            )}
+          </section>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Issue a ticket type</CardTitle>
+            <CardDescription>
+              New ticket types are ACTIVE. Price is an integer in minor currency
+              units; use 0 for free. Payment is not supported.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={handleSubmit((input) => create.mutate(input))}
+              noValidate
             >
-              {isSubmitting ? "Creating ticket type…" : "Create ticket type"}
-            </button>
-          </form>
-        </section>
+              <FieldGroup>
+                <Field data-invalid={Boolean(errors.name)}>
+                  <FieldLabel htmlFor="ticket-name">Name *</FieldLabel>
+                  <Input
+                    id="ticket-name"
+                    aria-invalid={Boolean(errors.name)}
+                    {...register("name")}
+                  />
+                  <FieldError errors={[errors.name]} />
+                </Field>
+                <Field data-invalid={Boolean(errors.description)}>
+                  <FieldLabel htmlFor="ticket-description">
+                    Description
+                  </FieldLabel>
+                  <Textarea
+                    id="ticket-description"
+                    aria-invalid={Boolean(errors.description)}
+                    {...register("description", { setValueAs: optionalText })}
+                  />
+                  <FieldError errors={[errors.description]} />
+                </Field>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  {(
+                    [
+                      { name: "totalSupply", label: "Total supply", min: 1 },
+                      { name: "price", label: "Price (minor units)", min: 0 },
+                    ] as const
+                  ).map(({ name, label, min }) => (
+                    <Field key={name} data-invalid={Boolean(errors[name])}>
+                      <FieldLabel htmlFor={name}>{label} *</FieldLabel>
+                      <Input
+                        id={name}
+                        min={min}
+                        step={1}
+                        type="number"
+                        aria-invalid={Boolean(errors[name])}
+                        {...register(name, { valueAsNumber: true })}
+                      />
+                      <FieldError errors={[errors[name]]} />
+                    </Field>
+                  ))}
+                </div>
+                {create.isError && (
+                  <ErrorState
+                    title="Ticket type not created"
+                    error={create.error}
+                  />
+                )}
+                <Button
+                  type="submit"
+                  className="h-11"
+                  disabled={create.isPending}
+                >
+                  {create.isPending && <Spinner data-icon="inline-start" />}
+                  {create.isPending ? "Creating…" : "Create ticket type"}
+                </Button>
+              </FieldGroup>
+            </form>
+          </CardContent>
+        </Card>
       </div>
-    </main>
-  );
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof ApiClientError ? error.message : fallback;
-}
-
-function formatPrice(price: string) {
-  return price === "0" ? "Free" : `${price} minor units`;
-}
-
-function Metric({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div>
-      <dt className="text-zinc-500">{label}</dt>
-      <dd className="mt-1 font-medium">{value}</dd>
-    </div>
-  );
-}
-
-function FormField({
-  children,
-  error,
-  label,
-  required = false,
-}: {
-  children: React.ReactNode;
-  error?: string;
-  label: string;
-  required?: boolean;
-}) {
-  return (
-    <label className="block space-y-2">
-      <span className="text-sm font-medium">
-        {label}
-        {required ? " *" : ""}
-      </span>
-      {children}
-      {error ? (
-        <span className="block text-sm text-red-600">{error}</span>
-      ) : null}
-    </label>
-  );
-}
-
-function PageMessage({
-  children,
-  description,
-  title,
-}: {
-  children?: React.ReactNode;
-  description?: string;
-  title: string;
-}) {
-  return (
-    <main className="grid min-h-screen place-items-center bg-zinc-50 px-6 text-zinc-950">
-      <section className="max-w-md rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
-        <h1 className="text-2xl font-semibold">{title}</h1>
-        {description ? (
-          <p className="mt-3 text-zinc-600">{description}</p>
-        ) : null}
-        {children ? <div className="mt-5">{children}</div> : null}
-      </section>
-    </main>
+      <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Publish this experience?</DialogTitle>
+            <DialogDescription>
+              It will become publicly visible, and attendees can claim active
+              passes. There is no unpublish action in this release.
+            </DialogDescription>
+          </DialogHeader>
+          {publish.isError && <ErrorState error={publish.error} />}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={publish.isPending}
+              onClick={() => setPublishOpen(false)}
+            >
+              Keep as draft
+            </Button>
+            <Button
+              disabled={publish.isPending}
+              onClick={() => publish.mutate()}
+            >
+              {publish.isPending && <Spinner data-icon="inline-start" />}Publish
+              event
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

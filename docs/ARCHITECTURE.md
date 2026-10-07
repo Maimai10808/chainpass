@@ -11,7 +11,7 @@
 - Monorepo、Next.js、NestJS、Expo、Foundry、PostgreSQL 与四个共享包的目录已经建立。
 - Better Auth 已接入 API、Web 与 Mobile；Prisma 在唯一的 Better Auth `User` 上关联 Event、Pass、一个已验证 Wallet 及短期 Wallet Challenge。
 - API 已实现 Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Blockchain Mint、Merchant Verify/Check-in 与短时动态 QR Credential，并在 `/docs` 与 `/docs/openapi.json` 暴露 Swagger/OpenAPI Contract。
-- Web 已实现 Merchant 活动管理、公开活动、Claim、`/my-passes` 的钱包连接/签名绑定与 Mint 状态、用户 Pass 动态 QR，以及 `/merchant/check-in` 的手工/摄像头核验。
+- Web 采用统一 Holographic Graphite App Shell，包含正式登录/注册、首页/活动浏览、User 持票/钱包绑定/Mint/QR、Merchant 工作区与 Admin 用户/活动管理。业务能力通过共享 Client 与 React Query 连接真实 API，不使用模拟业务数据。
 - Mobile 已实现 Better Auth 登录注册、公开活动列表/详情、Claim、My Passes、Pass Detail 与服务端签发的动态 QR；Merchant Scanner、Wallet Binding 和 Mint 操作仍只在 Web 提供。
 - `@chainpass/api-client` 与 `@chainpass/schemas` 承载业务边界；`@chainpass/web3` 共享实际合约 ABI、Ethereum Sepolia 配置、地址规范化和 Pass Hash 规则。
 - Solidity `ChainPass` 是 issuer-only、non-transferable ERC-721，按 database Pass hash 防重复 Mint；当前版本已部署至 Ethereum Sepolia，公开地址与广播记录见 `contracts/deployments/sepolia.json`。
@@ -44,7 +44,9 @@ docs/           跨应用工程约束
 
 ### `apps/web`
 
-当前技术栈为 Next.js 16、React 19 与 Tailwind CSS 4。现有代码包含 Better Auth React Client 和 Auth 测试页面。
+当前技术栈为 Next.js 16、React 19、Tailwind CSS 4、Base UI shadcn、React Query、RHF/Zod 和 Sonner。`components/chainpass` 提供共用 Shell/状态，`components/auth` 管理表单与 Session/Role 渲染门禁，`components/events`、`components/passes`、`components/merchant` 承载领域 UI；Admin 路由使用 Better Auth 官方 Admin Client。`/auth-test` 仅重定向 `/login`，不再保留开发控制台。具体路由、数据刷新和视觉边界见 [Web README](../apps/web/README.md)。
+
+注册只能创建普通 user，Merchant 由 Admin 经 Better Auth `setRole` 提升。客户端 RouteGate 避免未授权页面内容渲染，但不是安全边界；服务端 Session、权限与 Ownership 仍为最终依据。`/events/mine` 限定当前 organizer，`/events/admin` 显式要求 admin，不能因 user 拥有 event read 权限而泄漏 Draft。
 
 目标职责：
 

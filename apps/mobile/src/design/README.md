@@ -64,11 +64,10 @@ Default body uses the native system font. If specifying a family explicitly, use
 names or the status helper, not dynamic string assembly.
 Run Metro from `apps/mobile` (the pnpm filter does this); restart after config changes.
 
-Existing pages/components retain their layouts and API logic. Legacy `Colors`
+Product screens consume this foundation. Legacy `Colors`
 and `useTheme` resolve the graphite palette even if the device prefers light;
 this is an explicit dark-first policy, not an implemented light theme.
-Existing business components will adopt the rest of these tokens in the later
-screen task; do not rewrite them during Foundation work.
+Native business components use these same tokens, never a parallel theme.
 
 ## Native motion and haptics
 
@@ -79,7 +78,7 @@ when a specific transition needs it. Animate transforms/opacity, not layout size
 
 For optional tilt/parallax/press scaling, consume `useReducedMotionPreference()`
 and `getPressFeedback(pressed, reduced)`: reduced motion removes scale. Never
-use `ReduceMotion.Never`. Existing splash exit also respects system reduction.
+use `ReduceMotion.Never`. Session restoration shows a calm loading boundary.
 Do not animate every screen/card; gesture continuity and prompt feedback matter
 more than dramatic movement.
 
@@ -112,9 +111,9 @@ and a visible 2pt border/ring where supported; Input error uses danger plus text
 Keyboard-aware forms must allow scrolling to the CTA with native resize/insets
 or KeyboardAvoidingView, never a fixed-height clipping form.
 
-## Layout and navigation rules (not new navigators)
+## Layout and navigation rules
 
-Keep Expo Router Native Tabs/Stack. Future auxiliary actions prefer native
+Keep Expo Router Native Tabs/Stack. Auxiliary actions prefer native
 modal/bottom sheet instead of desktop sidebars/dropdowns. No new sheet library.
 Use sheet surface/radius/grabber/overlay tokens; maintain dismiss accessibility.
 `@expo/ui` is appropriate for native picker/menu/date/segmented controls, not a
@@ -134,7 +133,7 @@ system-reduced motion, platform fallbacks and server-owned status.
 
 DON'T: random hex/radius/duration, hover-based interaction, every card glass,
 every button gradient, every interaction haptic, business rules in tokens, Web
-CSS imports, shared token packages, shaders/particles or screen redesign here.
+CSS imports, shared token packages, shaders/particles or business logic here.
 
 ## Verification
 

@@ -1,27 +1,25 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "ChainPass",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/chainpass-icon.png",
     "scheme": "chainpass",
     "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/chainpass-icon.png"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#07080B",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/chainpass-icon.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/chainpass-icon.png"
     },
     "plugins": [
       "expo-router",
@@ -29,11 +27,18 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#07080B",
-          "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ChainPass to scan attendee QR passes for event check-in.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

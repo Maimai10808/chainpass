@@ -1,220 +1,175 @@
+import { useState } from "react";
+import { router, Link, type Href, useLocalSearchParams } from "expo-router";
+import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { type Href, Link, router, useLocalSearchParams } from "expo-router";
-import { type ComponentProps, useState } from "react";
+import { View, Text } from "react-native";
+import { authClient, signIn, signUp, useSession } from "@/lib/auth-client";
+import { authDestination, getRole } from "@/lib/product";
+import { triggerHaptic } from "@/design";
 import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
-
-import { ActionButton, Card, ScreenState, layoutStyles } from "./ui";
-import { useTheme } from "@/hooks/use-theme";
-import { signIn, signUp, useSession } from "@/lib/auth-client";
-
+  Screen,
+  Heading,
+  Card,
+  Field,
+  ActionButton,
+  Feedback,
+  text,
+  layoutStyles,
+} from "./ui";
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
-  const theme = useTheme();
-  const queryClient = useQueryClient();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
-  const { data: session, isPending: sessionPending } = useSession();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const isSignUp = mode === "sign-up";
-
-  function continueToApp() {
-    const destination = returnTo?.startsWith("/")
-      ? (returnTo as Href)
-      : ("/" as Href);
-    router.replace(destination);
-  }
-
+  const { data: session } = useSession();
+  const client = useQueryClient();
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    confirm: "",
+  });
+  const [visible, setVisible] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const signup = mode === "sign-up";
+  const set = (field: keyof typeof form, value: string) =>
+    setForm((current) => ({ ...current, [field]: value }));
   async function submit() {
+    if (busy) return;
+    const valid = z
+      .object({ email: z.email(), password: z.string().min(8).max(128) })
+      .safeParse({ email: form.email.trim(), password: form.password });
     if (
-      submitting ||
-      !email.trim() ||
-      password.length < 8 ||
-      (isSignUp && !name.trim())
-    )
+      !valid.success ||
+      (signup && (!form.name.trim() || form.password !== form.confirm))
+    ) {
+      setError(
+        "Enter a valid email and an 8–128 character password. Add your name and matching passwords for registration.",
+      );
       return;
-    setSubmitting(true);
-    setError(null);
+    }
+    setBusy(true);
+    setError("");
     try {
-      const result = isSignUp
-        ? await signUp.email({
-            name: name.trim(),
-            email: email.trim(),
-            password,
-          })
-        : await signIn.email({ email: email.trim(), password });
+      const result = signup
+        ? await signUp.email({ name: form.name.trim(), ...valid.data })
+        : await signIn.email(valid.data);
       if (result.error) {
         setError(
-          result.error.message ??
-            `Unable to ${isSignUp ? "create the account" : "sign in"}.`,
+          result.error.code === "INVALID_EMAIL_OR_PASSWORD"
+            ? "Email or password is incorrect."
+            : signup
+              ? "Unable to create this account. Try another email or sign in."
+              : "Unable to sign in. Check your credentials.",
         );
         return;
       }
-      await queryClient.invalidateQueries();
-      continueToApp();
+      const fresh = await authClient.getSession({
+        query: { disableCookieCache: true },
+      });
+      if (fresh.error || !fresh.data?.user) {
+        setError(
+          "Your session could not be restored. Check your connection and try again.",
+        );
+        return;
+      }
+      client.removeQueries({ queryKey: ["private"] });
+      void triggerHaptic("success");
+      router.replace(
+        authDestination(getRole(fresh.data?.user), returnTo) as Href,
+      );
     } catch {
-      setError("Network unavailable. Check the API address and try again.");
+      setError("Network unavailable. Check your connection and try again.");
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   }
-
-  if (sessionPending)
-    return <ScreenState loading title="Restoring your session…" />;
-  if (session) {
-    return (
-      <ScreenState
-        action={<ActionButton label="Continue" onPress={continueToApp} />}
-        description={`Signed in as ${session.user.email}`}
-        title="You are signed in"
-      />
-    );
-  }
-
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={[
-        layoutStyles.screen,
-        { backgroundColor: theme.backgroundElement },
-      ]}
-    >
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.heading}>
-          <Text style={[styles.eyebrow, { color: theme.primary }]}>
-            CHAINPASS
-          </Text>
-          <Text style={[styles.title, { color: theme.text }]}>
-            {isSignUp ? "Create your account" : "Welcome back"}
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            {isSignUp
-              ? "One account keeps every pass and session connected."
-              : "Sign in to claim and present your event passes."}
-          </Text>
-        </View>
+    <Screen keyboard>
+      <Heading
+        title={signup ? "Your next experience starts here." : "Welcome back."}
+        description={
+          signup
+            ? "Create an account to collect passes and carry them with you."
+            : "Your events, passes and workspace, all in one place."
+        }
+      />
+      {session ? (
         <Card>
-          {isSignUp ? (
+          <Text style={text.body}>
+            You’re signed in as {session.user.name}.
+          </Text>
+          <ActionButton
+            label="Continue"
+            onPress={() =>
+              router.replace(
+                authDestination(getRole(session.user), returnTo) as Href,
+              )
+            }
+          />
+        </Card>
+      ) : (
+        <Card>
+          {signup && (
             <Field
-              autoComplete="name"
               label="Name"
-              onChangeText={setName}
-              placeholder="Your name"
-              value={name}
+              autoComplete="name"
+              value={form.name}
+              onChangeText={(value) => set("name", value)}
             />
-          ) : null}
+          )}
           <Field
+            label="Email"
             autoCapitalize="none"
             autoComplete="email"
             keyboardType="email-address"
-            label="Email"
-            onChangeText={setEmail}
-            placeholder="you@example.com"
-            value={email}
+            value={form.email}
+            onChangeText={(value) => set("email", value)}
           />
           <Field
-            autoCapitalize="none"
-            autoComplete={isSignUp ? "new-password" : "current-password"}
             label="Password"
-            onChangeText={setPassword}
-            placeholder="At least 8 characters"
-            secureTextEntry
-            value={password}
+            autoCapitalize="none"
+            autoComplete={signup ? "new-password" : "current-password"}
+            secureTextEntry={!visible}
+            value={form.password}
+            onChangeText={(value) => set("password", value)}
           />
-          {error ? (
-            <Text style={[styles.error, { color: theme.danger }]}>{error}</Text>
-          ) : null}
+          {signup && (
+            <Field
+              label="Confirm password"
+              autoCapitalize="none"
+              autoComplete="new-password"
+              secureTextEntry={!visible}
+              value={form.confirm}
+              onChangeText={(value) => set("confirm", value)}
+            />
+          )}
           <ActionButton
-            disabled={
-              !email.trim() || password.length < 8 || (isSignUp && !name.trim())
-            }
-            label={isSignUp ? "Create account" : "Sign in"}
-            loading={submitting}
+            tone="secondary"
+            label={visible ? "Hide passwords" : "Show passwords"}
+            onPress={() => setVisible(!visible)}
+          />
+          {Boolean(error) && <Feedback message={error} />}
+          <ActionButton
+            label={signup ? "Create account" : "Sign in"}
+            loading={busy}
             onPress={() => void submit()}
           />
         </Card>
-        <View style={styles.switchRow}>
-          <Text style={{ color: theme.textSecondary }}>
-            {isSignUp ? "Already have an account?" : "New to ChainPass?"}
-          </Text>
-          <Link
-            href={{
-              pathname: isSignUp ? "/auth/sign-in" : "/auth/sign-up",
-              params: returnTo ? { returnTo } : {},
-            }}
-            replace
-          >
-            <Text style={[styles.link, { color: theme.primary }]}>
-              {isSignUp ? "Sign in" : "Create account"}
-            </Text>
-          </Link>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      )}
+      <View style={layoutStyles.section}>
+        <Text style={text.body}>
+          {signup ? "Already have an account?" : "New to ChainPass?"}
+        </Text>
+        <Link
+          href={{
+            pathname: signup ? "/auth/sign-in" : "/auth/sign-up",
+            params: returnTo ? { returnTo } : {},
+          }}
+          replace
+          style={text.label}
+        >
+          {signup ? "Sign in →" : "Create account →"}
+        </Link>
+      </View>
+    </Screen>
   );
 }
-
-type FieldProps = ComponentProps<typeof TextInput> & { label: string };
-
-function Field({ label, style, ...props }: FieldProps) {
-  const theme = useTheme();
-  return (
-    <View style={styles.field}>
-      <Text style={[styles.label, { color: theme.text }]}>{label}</Text>
-      <TextInput
-        autoCorrect={false}
-        placeholderTextColor={theme.textSecondary}
-        selectionColor={theme.primary}
-        style={[
-          styles.input,
-          {
-            backgroundColor: theme.backgroundElement,
-            borderColor: theme.border,
-            color: theme.text,
-          },
-          style,
-        ]}
-        {...props}
-      />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  content: { flexGrow: 1, justifyContent: "center", padding: 22, gap: 22 },
-  heading: { gap: 8 },
-  eyebrow: { fontSize: 12, fontWeight: "800", letterSpacing: 1.8 },
-  title: { fontSize: 32, lineHeight: 38, fontWeight: "800" },
-  subtitle: { fontSize: 16, lineHeight: 23 },
-  field: { gap: 7 },
-  label: { fontSize: 14, fontWeight: "700" },
-  input: {
-    minHeight: 50,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 13,
-    borderCurve: "continuous",
-    paddingHorizontal: 14,
-    fontSize: 16,
-  },
-  error: { fontSize: 14, lineHeight: 20 },
-  switchRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  link: { fontWeight: "700" },
-});

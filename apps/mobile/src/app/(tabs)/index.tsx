@@ -1,103 +1,93 @@
+import { useState } from "react";
+import { FlatList, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import type { PublicEventSummary } from "@chainpass/api-client";
-import { useCallback } from "react";
-import { FlatList, StyleSheet, Text, View } from "react-native";
-
+import { apiClient } from "@/lib/api-client";
+import { keys } from "@/lib/product";
+import { errorMessage } from "@/lib/errors";
 import { EventCard } from "@/components/chainpass/event-card";
 import {
-  ActionButton,
+  Heading,
+  Field,
+  SkeletonList,
   ScreenState,
+  ActionButton,
+  Feedback,
   layoutStyles,
 } from "@/components/chainpass/ui";
-import { useTheme } from "@/hooks/use-theme";
-import { apiClient } from "@/lib/api-client";
-import { queryKeys } from "@/lib/query-client";
-
-export default function DiscoverScreen() {
-  const theme = useTheme();
+export default function Discover() {
+  const [search, setSearch] = useState("");
   const events = useQuery({
-    queryKey: queryKeys.events,
+    queryKey: keys.events,
     queryFn: () => apiClient.listPublishedEvents(),
   });
-  const renderEvent = useCallback(
-    ({ item }: { item: PublicEventSummary }) => (
-      <EventCard
-        coverImageUrl={item.coverImageUrl}
-        eventId={item.id}
-        location={item.location}
-        name={item.name}
-        startsAt={item.startsAt}
-      />
-    ),
-    [],
-  );
-
-  if (events.isPending) {
-    return <ScreenState loading title="Discovering events…" />;
-  }
-  if (events.isError) {
+  if (events.isPending) return <SkeletonList />;
+  if (events.isError && !events.data)
     return (
       <ScreenState
+        title="Events unavailable"
+        description={errorMessage(events.error)}
         action={
           <ActionButton label="Retry" onPress={() => void events.refetch()} />
         }
-        description="Check your connection and API URL, then try again."
-        title="Events unavailable"
       />
     );
-  }
-
+  const filtered =
+    events.data?.filter((event) =>
+      `${event.name} ${event.location ?? ""}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+    ) ?? [];
   return (
     <FlatList
+      style={layoutStyles.screen}
       contentInsetAdjustmentBehavior="automatic"
+      keyboardShouldPersistTaps="handled"
       contentContainerStyle={layoutStyles.listContent}
-      data={events.data}
-      keyExtractor={(event) => event.id}
-      ListEmptyComponent={
-        <View style={styles.empty}>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>
-            No published events yet
-          </Text>
-          <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-            Check back after an organizer publishes the next event.
-          </Text>
-        </View>
-      }
-      ListHeaderComponent={
-        <View style={styles.header}>
-          <Text style={[styles.eyebrow, { color: theme.primary }]}>
-            CHAINPASS
-          </Text>
-          <Text style={[styles.title, { color: theme.text }]}>
-            Discover events
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            Claim a pass, keep it with you, and present a secure QR at the door.
-          </Text>
-        </View>
-      }
-      onRefresh={() => void events.refetch()}
+      data={filtered}
+      keyExtractor={(item) => item.id}
       refreshing={events.isRefetching}
-      renderItem={renderEvent}
-      style={[
-        layoutStyles.screen,
-        { backgroundColor: theme.backgroundElement },
-      ]}
+      onRefresh={() => void events.refetch()}
+      ListHeaderComponent={
+        <View style={layoutStyles.section}>
+          <Heading
+            title="Go somewhere new."
+            description="Experiences worth showing up for. One pass, always with you."
+          />
+          <Field
+            label="Find an event"
+            placeholder="Event or location"
+            value={search}
+            onChangeText={setSearch}
+          />
+          {events.isError && (
+            <Feedback
+              tone="warning"
+              message="Showing saved events. Pull to refresh when you’re online."
+            />
+          )}
+        </View>
+      }
+      ListEmptyComponent={
+        <ScreenState
+          title={
+            search ? "No matching events" : "Your next event is on its way"
+          }
+          description={
+            search
+              ? "Try a different name or location."
+              : "Published events will appear here."
+          }
+        />
+      }
+      renderItem={({ item }) => (
+        <EventCard
+          eventId={item.id}
+          name={item.name}
+          startsAt={item.startsAt}
+          location={item.location}
+          coverImageUrl={item.coverImageUrl}
+        />
+      )}
     />
   );
 }
-
-const styles = StyleSheet.create({
-  header: { paddingTop: 18, paddingBottom: 8, gap: 8 },
-  eyebrow: { fontSize: 12, fontWeight: "800", letterSpacing: 1.8 },
-  title: { fontSize: 34, lineHeight: 39, fontWeight: "800" },
-  subtitle: { fontSize: 16, lineHeight: 23, maxWidth: 520 },
-  empty: {
-    alignItems: "center",
-    paddingVertical: 80,
-    paddingHorizontal: 24,
-    gap: 8,
-  },
-  emptyTitle: { fontSize: 20, fontWeight: "700", textAlign: "center" },
-  emptyText: { fontSize: 15, lineHeight: 22, textAlign: "center" },
-});

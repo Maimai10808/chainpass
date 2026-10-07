@@ -152,3 +152,25 @@ test("Tailwind compiles semantic tokens and all opt-in foundation utilities", as
   assert.ok(result.css.includes("prefers-color-scheme") === false);
   assert.ok(result.css.includes("forced-colors: active"));
 });
+
+test("Base UI tabs forward orientation and style its actual data attribute", async () => {
+  const tabs = await readFile(
+    new URL("../../components/ui/tabs.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(tabs, /orientation=\{orientation\}/);
+  assert.ok(tabs.includes("data-[orientation=horizontal]:flex-col"));
+  assert.ok(tabs.includes("group-data-[orientation=vertical]/tabs:flex-col"));
+  assert.equal(
+    /(?:group-)?data-horizontal:|(?:group-)?data-vertical\//.test(tabs),
+    false,
+  );
+  const result = await postcss([
+    tailwind({ base: dirname(dirname(cssPath)) }),
+  ]).process(
+    `${css}\n@source inline("data-[orientation=horizontal]:flex-col group-data-[orientation=vertical]/tabs:flex-col");`,
+    { from: cssPath },
+  );
+  assert.ok(result.css.includes('[data-orientation="horizontal"]'));
+  assert.ok(result.css.includes('[data-orientation="vertical"]'));
+});

@@ -30,22 +30,19 @@ export const wagmiConfig =
 
 let appKit: AppKit | null = null;
 
-if (projectId && wagmiAdapter) {
-  appKit = createAppKit({
-    adapters: [wagmiAdapter],
-    networks: [...networks],
-    projectId,
-    metadata,
-    features: {
-      email: false,
-      socials: false,
-    },
-  });
-}
-
 export const isWalletConnectConfigured = Boolean(projectId);
 
 export async function openWalletConnect(): Promise<void> {
+  // Open wallet UI only after an explicit user action, never while browsing or signing in.
+  if (!appKit && projectId && wagmiAdapter) {
+    appKit = createAppKit({
+      adapters: [wagmiAdapter],
+      networks: [...networks],
+      projectId,
+      metadata,
+      features: { email: false, socials: false },
+    });
+  }
   if (!appKit) throw new Error("Reown AppKit is not configured");
   await appKit.open({ view: "Connect" });
 }

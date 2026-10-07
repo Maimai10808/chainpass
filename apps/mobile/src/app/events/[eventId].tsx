@@ -22,8 +22,12 @@ import { apiClient } from "@/lib/api-client";
 import { useSession } from "@/lib/auth-client";
 import { formatEventDate, formatPrice } from "@/lib/format";
 import { queryKeys } from "@/lib/query-client";
+import { keys } from "@/lib/product";
+import { triggerHaptic, duration, radius, spacing, typography } from "@/design";
+import { errorMessage } from "@/lib/errors";
 
 type ClaimFeedback = {
+  passId?: string;
   ticketTypeId: string;
   kind: "success" | "error";
   message: string;
@@ -57,10 +61,14 @@ export default function EventDetailScreen() {
               }
             : current,
       );
-      void queryClient.invalidateQueries({ queryKey: queryKeys.myPasses });
+      void queryClient.invalidateQueries({
+        queryKey: keys.passes(session?.user.id ?? ""),
+      });
+      void triggerHaptic("success");
       setFeedback({
         ticketTypeId,
         kind: "success",
+        passId: result.pass.id,
         message: "Pass claimed successfully.",
       });
     },
@@ -104,6 +112,11 @@ export default function EventDetailScreen() {
         }
         description={item.description}
         feedback={feedback?.ticketTypeId === item.id ? feedback : null}
+        disabled={
+          claim.isPending ||
+          sessionPending ||
+          getRole(session?.user ?? {}) === "merchant"
+        }
         isClaiming={claim.isPending && claim.variables === item.id}
         name={item.name}
         onClaim={claimTicket}
@@ -112,7 +125,14 @@ export default function EventDetailScreen() {
         ticketTypeId={item.id}
       />
     ),
-    [claim.isPending, claim.variables, claimTicket, feedback],
+    [
+      claim.isPending,
+      claim.variables,
+      claimTicket,
+      feedback,
+      session,
+      sessionPending,
+    ],
   );
 
   if (event.isPending) return <ScreenState loading title="Loading event…" />;
@@ -153,7 +173,7 @@ export default function EventDetailScreen() {
               contentFit="cover"
               source={{ uri: detail.coverImageUrl }}
               style={styles.cover}
-              transition={180}
+              transition={duration.fast}
             />
           ) : (
             <View
@@ -178,6 +198,7 @@ export default function EventDetailScreen() {
             </Text>
           ) : null}
           <Card>
+            <Fact label="Organizer" value={detail.organizer.name} />
             <Fact label="Starts" value={formatEventDate(detail.startsAt)} />
             <Fact label="Ends" value={formatEventDate(detail.endsAt)} />
             <Fact
@@ -209,6 +230,7 @@ export default function EventDetailScreen() {
 
 const TicketTypeCard = memo(function TicketTypeCard({
   claimed,
+  disabled,
   description,
   feedback,
   isClaiming,
@@ -219,6 +241,7 @@ const TicketTypeCard = memo(function TicketTypeCard({
   ticketTypeId,
 }: {
   claimed: boolean;
+  disabled: boolean;
   description: string | null;
   feedback: ClaimFeedback | null;
   isClaiming: boolean;
@@ -249,7 +272,7 @@ const TicketTypeCard = memo(function TicketTypeCard({
         <Fact label="Remaining" value={String(remaining)} />
       </View>
       <ActionButton
-        disabled={soldOut || claimed}
+        disabled={soldOut || claimed || disabled}
         label={soldOut ? "Sold out" : claimed ? "Claimed" : "Claim pass"}
         loading={isClaiming}
         onPress={() => onClaim(ticketTypeId)}
@@ -269,9 +292,18 @@ const TicketTypeCard = memo(function TicketTypeCard({
             {feedback.message}
           </Text>
           {feedback.kind === "success" ? (
-            <Pressable onPress={() => router.push("/my-passes")}>
+            <Pressable
+              accessibilityRole="button"
+              style={{ minHeight: 48, justifyContent: "center" }}
+              onPress={() =>
+                router.push({
+                  pathname: "/my-passes/[passId]",
+                  params: { passId: feedback.passId! },
+                })
+              }
+            >
               <Text style={[styles.feedbackLink, { color: theme.primary }]}>
-                View My Passes
+                Open your pass →
               </Text>
             </Pressable>
           ) : null}
@@ -305,24 +337,28 @@ function claimErrorMessage(error: unknown): string {
   if (error.code === "TICKET_TYPE_SOLD_OUT") return "This pass is sold out.";
   if (error.status === 401)
     return "Your session expired. Sign in and try again.";
-  return error.message;
+  return errorMessage(error);
 }
 
 const styles = StyleSheet.create({
-  header: { paddingTop: 8, paddingBottom: 4, gap: 14 },
+  header: {
+    paddingTop: spacing[8],
+    paddingBottom: spacing[4],
+    gap: spacing[16],
+  },
   cover: {
     width: "100%",
     aspectRatio: 16 / 9,
-    borderRadius: 22,
+    borderRadius: radius.xl,
     borderCurve: "continuous",
   },
   coverPlaceholder: { alignItems: "center", justifyContent: "center" },
   coverLabel: { fontSize: 13, fontWeight: "800", letterSpacing: 2 },
-  title: { fontSize: 32, lineHeight: 38, fontWeight: "800" },
+  title: typography["title-1"],
   description: { fontSize: 16, lineHeight: 24 },
   sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: "700" },
   ticketHeader: { gap: 5, paddingTop: 8 },
-  ticketName: { flex: 1, fontSize: 20, lineHeight: 25, fontWeight: "700" },
+  ticketName: { flex: 1, ...typography["title-3"] },
   body: { fontSize: 15, lineHeight: 22 },
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   facts: { flexDirection: "row", gap: 24 },

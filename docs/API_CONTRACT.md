@@ -14,6 +14,8 @@ Event 接口边界如下：
 | `GET`  | `/events/:eventId/manage`            | organizer/admin | 返回 Merchant 管理所需的完整 Event                                  |
 | `POST` | `/events/:eventId/publish`           | organizer/admin | 满足发布规则后执行 `DRAFT → PUBLISHED`；重复发布幂等返回当前 Event  |
 | `GET`  | `/events`                            | public          | 只返回 `PUBLISHED` Event 的公开字段                                 |
+| `GET`  | `/events/mine`                       | merchant/admin  | 只返回 Session organizer 自己的 Draft/Published、票种数量与最小 organizer 信息 |
+| `GET`  | `/events/admin`                      | admin only      | 全平台 Draft/Published 列表；显式 admin 角色校验，不只检查 event read 权限 |
 | `GET`  | `/events/:eventId`                   | public          | 只返回 `PUBLISHED` Event 与 `ACTIVE` TicketType；Draft 按未找到处理 |
 | `POST` | `/events/:eventId/ticket-types`      | organizer/admin | 创建 TicketType                                                     |
 | `GET`  | `/events/:eventId/ticket-types`      | authenticated   | 返回管理流程的 TicketType 列表                                      |
@@ -30,7 +32,7 @@ Event 接口边界如下：
 
 发布 Event 前服务端按 Authentication → Permission → Ownership → Business Rule 校验：merchant 只能发布自己组织的 Event，admin 可发布任意 Event；Event 必须存在、时间范围合法，并至少拥有一个 `ACTIVE` TicketType。缺少可发行票种返回 `400 EVENT_HAS_NO_ACTIVE_TICKET_TYPES`。
 
-公开 Event Detail 不暴露 `organizerId`、创建时间等内部管理字段。公开 TicketType 只包含 `ACTIVE` 项，并由服务端计算 `remaining = totalSupply - claimedCount`。
+公开 Event Detail 额外返回 `organizer: { name }`，不暴露 organizer email、`organizerId`、创建时间等内部管理字段。公开 TicketType 只包含 `ACTIVE` 项，并由服务端计算 `remaining = totalSupply - claimedCount`。管理列表使用 `ManagedEventSummary`（Event 管理字段、`organizer: { id, name }`、`ticketTypeCount`），静态路由 `/events/mine`、`/events/admin` 在公开动态详情前注册；普通 user 和匿名请求分别返回 403、401。Admin 的 `/events/mine` 也只返回自己组织的活动，全平台视图独立使用 `/events/admin`。
 
 Claim Pass 请求不接受可信身份或库存字段；`ownerId` 固定来自 `session.user.id`。Event 必须为 `PUBLISHED`、TicketType 必须为 `ACTIVE` 且有库存，同一 User 对同一 TicketType 只能领取一次。重复领取、未发布、停用和售罄使用 `409` 与稳定业务错误码区分。
 

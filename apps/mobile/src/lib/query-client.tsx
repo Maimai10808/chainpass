@@ -6,12 +6,7 @@ import {
 import { type PropsWithChildren, useEffect, useState } from "react";
 import { AppState, type AppStateStatus, Platform } from "react-native";
 
-export const queryKeys = {
-  events: ["events"] as const,
-  event: (eventId: string) => ["event", eventId] as const,
-  myPasses: ["my-passes"] as const,
-  passQr: (passId: string) => ["pass-verification-token", passId] as const,
-};
+export { keys as queryKeys } from "./product";
 
 export function AppQueryProvider({ children }: PropsWithChildren) {
   const [queryClient] = useState(

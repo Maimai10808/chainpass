@@ -1,477 +1,430 @@
 "use client";
 
+import { useEffect, useCallback, useRef, useState } from "react";
 import type { IScannerControls } from "@zxing/browser";
+import { useMutation } from "@tanstack/react-query";
 import { ApiClientError, type VerifyPassResponse } from "@chainpass/api-client";
-import Link from "next/link";
-import {
-  type FormEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-
+import type { CheckInMethod } from "@chainpass/schemas";
+import { toast } from "sonner";
+import { Camera, ScanLine, CheckCircle2, ShieldCheck } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { apiClient } from "@/lib/api-client";
-import { useSession } from "@/lib/auth-client";
+import { formatDate, errorMessage } from "@/lib/presentation";
+import { getMotionTransition } from "@/lib/design/motion";
+import {
+  PageHeading,
+  Detail,
+  StatusBadge,
+} from "@/components/chainpass/page-kit";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 
-type VerificationMethod = "MANUAL" | "QR";
-type ScannerState =
-  | "idle"
-  | "starting"
-  | "scanning"
-  | "verifying"
-  | "expired"
-  | "invalid"
-  | "error"
-  | "complete";
-
+type ScanState = "idle" | "starting" | "scanning" | "stopped";
 export default function MerchantCheckInPage() {
-  const { data: session, isPending: isSessionPending } = useSession();
-  const [mode, setMode] = useState<"manual" | "scanner">("manual");
+  const [mode, setMode] = useState("manual");
   const [passId, setPassId] = useState("");
   const [result, setResult] = useState<VerifyPassResponse | null>(null);
-  const [verificationMethod, setVerificationMethod] =
-    useState<VerificationMethod>("MANUAL");
-  const [error, setError] = useState<string | null>(null);
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [isCheckingIn, setIsCheckingIn] = useState(false);
-  const [checkedIn, setCheckedIn] = useState(false);
-  const [scannerState, setScannerState] = useState<ScannerState>("idle");
-  const controlsRef = useRef<IScannerControls | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const scanLockedRef = useRef(false);
-
-  const stopScanner = useCallback(() => {
-    controlsRef.current?.stop();
-    controlsRef.current = null;
-    const stream = videoRef.current?.srcObject;
-    if (stream instanceof MediaStream) {
+  const [method, setMethod] = useState<CheckInMethod>("MANUAL");
+  const [scanState, setScanState] = useState<ScanState>("idle");
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const controls = useRef<IScannerControls | null>(null);
+  const video = useRef<HTMLVideoElement | null>(null);
+  const epoch = useRef(0);
+  const locked = useRef(false);
+  const reduced = useReducedMotion();
+  const stop = useCallback(() => {
+    epoch.current += 1;
+    controls.current?.stop();
+    controls.current = null;
+    const stream = video.current?.srcObject;
+    if (stream instanceof MediaStream)
       stream.getTracks().forEach((track) => track.stop());
-      if (videoRef.current) videoRef.current.srcObject = null;
-    }
+    if (video.current) video.current.srcObject = null;
   }, []);
-
-  useEffect(() => stopScanner, [stopScanner]);
-
-  if (isSessionPending) return <PageMessage title="Checking your session…" />;
-
-  if (!session) {
-    return (
-      <PageMessage
-        title="Sign in required"
-        description="Sign in with a merchant or admin account to verify passes."
-      >
-        <Link className="font-medium text-blue-700 underline" href="/auth-test">
-          Open sign in
-        </Link>
-      </PageMessage>
-    );
-  }
-
-  const role = session.user.role ?? "user";
-  if (role !== "merchant" && role !== "admin") {
-    return (
-      <PageMessage
-        title="Merchant access required"
-        description="Your account cannot verify or check in event passes."
-      />
-    );
-  }
-
-  async function verifyManualPass(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const normalizedPassId = passId.trim();
-    if (!normalizedPassId || isVerifying) return;
-    setIsVerifying(true);
-    setError(null);
-    setResult(null);
-    setCheckedIn(false);
-    setVerificationMethod("MANUAL");
-    try {
-      setResult(await apiClient.verifyPass(normalizedPassId));
-    } catch (caught) {
-      setError(toErrorMessage(caught, "Unable to verify this pass."));
-    } finally {
-      setIsVerifying(false);
-    }
-  }
-
-  async function verifyScannedToken(token: string) {
-    setScannerState("verifying");
-    setError(null);
-    setResult(null);
-    setCheckedIn(false);
-    setVerificationMethod("QR");
-    try {
-      setResult(await apiClient.verifyPassToken({ token }));
-      setScannerState("complete");
-    } catch (caught) {
-      if (caught instanceof ApiClientError) {
-        if (caught.code === "QR_TOKEN_EXPIRED") {
-          setScannerState("expired");
-          setError("QR code expired. Ask the attendee to refresh the pass.");
-          return;
-        }
-        if (caught.code === "INVALID_QR_TOKEN") {
-          setScannerState("invalid");
-          setError("Invalid QR code.");
-          return;
+  useEffect(() => stop, [stop]);
+  const verify = useMutation({
+    mutationFn: ({
+      value,
+      method: source,
+    }: {
+      value: string;
+      method: CheckInMethod;
+    }) =>
+      source === "QR"
+        ? apiClient.verifyPassToken({ token: value })
+        : apiClient.verifyPass(value),
+    onSuccess: (data, variables) => {
+      setResult(data);
+      setMethod(variables.method);
+    },
+    onError: (error) => toast.error(verificationError(error)),
+  });
+  const check = useMutation({
+    mutationFn: () => {
+      if (!result?.canCheckIn) throw new Error("Verify an active pass first");
+      return apiClient.checkInPass(result.pass.id, { method });
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      toast.success("Checked in. Welcome to the experience.");
+    },
+    onError: async (error) => {
+      toast.error(verificationError(error));
+      if (
+        error instanceof ApiClientError &&
+        error.code === "PASS_ALREADY_CHECKED_IN" &&
+        result
+      ) {
+        try {
+          setResult(await apiClient.verifyPass(result.pass.id));
+        } catch {
+          /* The original conflict remains visible. */
         }
       }
-      setScannerState("error");
-      setError(toErrorMessage(caught, "Unable to verify this QR code."));
-    }
-  }
-
-  async function startScanner() {
-    if (scannerState === "starting" || scannerState === "scanning") return;
-    stopScanner();
+    },
+  });
+  const busy = verify.isPending || check.isPending;
+  function begin(value: string, source: CheckInMethod) {
+    if (busy) return;
     setResult(null);
-    setError(null);
-    setCheckedIn(false);
-    setScannerState("starting");
-    scanLockedRef.current = false;
-
-    if (!navigator.mediaDevices?.getUserMedia || !videoRef.current) {
-      setScannerState("error");
-      setError("Camera is unavailable. Use manual Pass ID instead.");
+    check.reset();
+    verify.mutate({ value, method: source });
+  }
+  function changeMode(value: string) {
+    if (busy) return;
+    stop();
+    setMode(value);
+    setResult(null);
+    setCameraError(null);
+    setScanState("idle");
+    verify.reset();
+    check.reset();
+  }
+  async function startCamera() {
+    if (busy || scanState === "starting" || scanState === "scanning") return;
+    stop();
+    const run = epoch.current;
+    setResult(null);
+    verify.reset();
+    check.reset();
+    setCameraError(null);
+    setScanState("starting");
+    locked.current = false;
+    const target = video.current;
+    if (
+      !window.isSecureContext ||
+      !navigator.mediaDevices?.getUserMedia ||
+      !target
+    ) {
+      setCameraError(
+        "Camera requires HTTPS (or localhost) and a supported device. Manual Pass ID is always available.",
+      );
+      setScanState("stopped");
       return;
     }
-
     try {
       const { BrowserQRCodeReader } = await import("@zxing/browser");
+      if (epoch.current !== run) return;
       const reader = new BrowserQRCodeReader(undefined, {
         delayBetweenScanAttempts: 250,
         delayBetweenScanSuccess: 1_000,
       });
-      const controls = await reader.decodeFromConstraints(
+      const scanner = await reader.decodeFromConstraints(
         { video: { facingMode: { ideal: "environment" } }, audio: false },
-        videoRef.current,
-        (scanResult, _scanError, callbackControls) => {
-          if (!scanResult || scanLockedRef.current) return;
-          scanLockedRef.current = true;
-          callbackControls.stop();
-          stopScanner();
-          void verifyScannedToken(scanResult.getText());
+        target,
+        (decoded, _error, scannerControls) => {
+          if (!decoded || locked.current || epoch.current !== run) return;
+          locked.current = true;
+          scannerControls.stop();
+          stop();
+          setScanState("stopped");
+          begin(decoded.getText(), "QR");
         },
       );
-      controlsRef.current = controls;
-      if (scanLockedRef.current) controls.stop();
-      else setScannerState("scanning");
-    } catch (caught) {
-      stopScanner();
-      setScannerState("error");
-      setError(cameraErrorMessage(caught));
-    }
-  }
-
-  function changeMode(nextMode: "manual" | "scanner") {
-    stopScanner();
-    setMode(nextMode);
-    setResult(null);
-    setError(null);
-    setCheckedIn(false);
-    setScannerState("idle");
-    scanLockedRef.current = false;
-  }
-
-  async function checkInPass() {
-    if (!result?.canCheckIn || isCheckingIn) return;
-    setIsCheckingIn(true);
-    setError(null);
-    try {
-      setResult(
-        await apiClient.checkInPass(result.pass.id, {
-          method: verificationMethod,
-        }),
+      if (epoch.current !== run || locked.current) scanner.stop();
+      else {
+        controls.current = scanner;
+        setScanState("scanning");
+      }
+    } catch (error) {
+      if (epoch.current !== run) return;
+      stop();
+      setCameraError(
+        error instanceof DOMException && error.name === "NotAllowedError"
+          ? "Camera permission denied. Allow access or use Manual Pass ID."
+          : error instanceof DOMException && error.name === "NotFoundError"
+            ? "No camera found. Use Manual Pass ID."
+            : "Camera could not start. Use Manual Pass ID instead.",
       );
-      setCheckedIn(true);
-      setScannerState("complete");
-    } catch (caught) {
-      setError(toErrorMessage(caught, "Unable to check in this pass."));
-    } finally {
-      setIsCheckingIn(false);
+      setScanState("stopped");
     }
   }
-
   return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-12 text-zinc-950">
-      <div className="mx-auto max-w-3xl">
-        <Link
-          className="text-sm font-medium text-blue-700 underline"
-          href="/merchant/events/new"
-        >
-          Merchant workspace
-        </Link>
-        <header className="mt-5">
-          <p className="text-sm font-medium text-blue-700">Gate operations</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-            Verify and check in a pass
-          </h1>
-          <p className="mt-2 text-zinc-600">
-            Scan a dynamic QR or use the Pass ID fallback. Verification remains
-            read-only until confirmation.
-          </p>
-        </header>
-
-        <div
-          className="mt-8 inline-flex rounded-xl bg-zinc-200 p-1"
-          role="tablist"
-          aria-label="Verification method"
-        >
-          <ModeButton
-            active={mode === "scanner"}
-            onClick={() => changeMode("scanner")}
-          >
-            Scan QR
-          </ModeButton>
-          <ModeButton
-            active={mode === "manual"}
-            onClick={() => changeMode("manual")}
-          >
-            Manual Pass ID
-          </ModeButton>
-        </div>
-
-        {mode === "manual" ? (
-          <form
-            className="mt-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm"
-            onSubmit={verifyManualPass}
-          >
-            <label className="block text-sm font-medium" htmlFor="pass-id">
-              Pass ID
-            </label>
-            <div className="mt-2 flex flex-col gap-3 sm:flex-row">
-              <input
-                className="input flex-1"
-                id="pass-id"
-                onChange={(event) => setPassId(event.target.value)}
-                placeholder="clx…"
-                required
-                value={passId}
-              />
-              <button
-                className="rounded-lg bg-zinc-950 px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isVerifying || passId.trim() === ""}
-                type="submit"
-              >
-                {isVerifying ? "Verifying…" : "Verify pass"}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <section className="mt-4 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <div className="overflow-hidden rounded-xl bg-zinc-950">
-              <video
-                className="aspect-video w-full object-cover"
-                muted
-                playsInline
-                ref={videoRef}
-              />
-            </div>
-            <p className="mt-3 text-sm text-zinc-600" aria-live="polite">
-              {scannerStatusText(scannerState)}
-            </p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              {scannerState === "idle" ||
-              scannerState === "error" ||
-              scannerState === "expired" ||
-              scannerState === "invalid" ||
-              scannerState === "complete" ? (
-                <button
-                  className="rounded-lg bg-zinc-950 px-5 py-2.5 text-sm font-medium text-white"
-                  onClick={() => void startScanner()}
-                  type="button"
+    <>
+      <PageHeading
+        eyebrow="Merchant / gate operations"
+        title="A smooth entrance."
+        description="Verify first. Confirm check-in once. Camera and manual entry use the same secure business flow."
+      />
+      <div className="grid items-start gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ScanLine className="size-5 text-primary" />
+              Verify a pass
+            </CardTitle>
+            <CardDescription>
+              Only passes for your events can be checked in. Admins can verify
+              any event.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs value={mode} onValueChange={changeMode}>
+              <TabsList className="mb-6">
+                <TabsTrigger value="manual" disabled={busy}>
+                  Manual Pass ID
+                </TabsTrigger>
+                <TabsTrigger value="scanner" disabled={busy}>
+                  Scan QR
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="manual">
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (passId.trim()) begin(passId.trim(), "MANUAL");
+                  }}
                 >
-                  {scannerState === "complete"
-                    ? "Scan next pass"
-                    : "Start scanner"}
-                </button>
-              ) : null}
-              <button
-                className="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium"
-                onClick={() => changeMode("manual")}
-                type="button"
-              >
-                Use manual Pass ID instead
-              </button>
-            </div>
-          </section>
-        )}
-
-        {error ? (
-          <p
-            className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700"
-            role="alert"
-          >
-            {error}
-          </p>
-        ) : null}
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="pass-id">Pass ID</FieldLabel>
+                      <Input
+                        id="pass-id"
+                        placeholder="Paste the attendee's pass ID"
+                        value={passId}
+                        disabled={busy}
+                        onChange={(event) => setPassId(event.target.value)}
+                        required
+                      />
+                    </Field>
+                    <Button
+                      className="h-11"
+                      type="submit"
+                      disabled={busy || !passId.trim()}
+                    >
+                      {verify.isPending && <Spinner data-icon="inline-start" />}
+                      Verify pass
+                    </Button>
+                  </FieldGroup>
+                </form>
+              </TabsContent>
+              <TabsContent value="scanner">
+                <div className="relative overflow-hidden rounded-xl border border-border bg-background">
+                  <video
+                    className="aspect-video w-full object-cover"
+                    ref={video}
+                    muted
+                    playsInline
+                    aria-label="QR scanning camera"
+                  />
+                  {scanState !== "scanning" && (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <Camera className="size-12 text-muted-foreground" />
+                    </div>
+                  )}
+                </div>
+                <p
+                  className="mt-4 text-body-sm text-muted-foreground"
+                  aria-live="polite"
+                >
+                  {verify.isPending
+                    ? "QR detected. Verifying…"
+                    : scanState === "starting"
+                      ? "Requesting camera access…"
+                      : scanState === "scanning"
+                        ? "Hold the attendee QR inside the frame."
+                        : "Camera is stopped. Start when the next attendee is ready."}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {scanState === "scanning" || scanState === "starting" ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        stop();
+                        setScanState("stopped");
+                      }}
+                    >
+                      Stop camera
+                    </Button>
+                  ) : (
+                    <Button disabled={busy} onClick={() => void startCamera()}>
+                      {result ? "Scan next pass" : "Start scanner"}
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => changeMode("manual")}
+                  >
+                    Use manual instead
+                  </Button>
+                </div>
+                {cameraError && (
+                  <Alert className="mt-4">
+                    <AlertTitle>Camera unavailable</AlertTitle>
+                    <AlertDescription>{cameraError}</AlertDescription>
+                  </Alert>
+                )}
+              </TabsContent>
+            </Tabs>
+            {(verify.isError || check.isError) && (
+              <Alert className="mt-5" variant="destructive">
+                <AlertTitle>
+                  {verify.error instanceof ApiClientError &&
+                  verify.error.code === "QR_TOKEN_EXPIRED"
+                    ? "QR EXPIRED"
+                    : verify.error instanceof ApiClientError &&
+                        verify.error.code === "INVALID_QR_TOKEN"
+                      ? "INVALID QR"
+                      : "Action unsuccessful"}
+                </AlertTitle>
+                <AlertDescription>
+                  {verificationError(check.error ?? verify.error)}
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
         {result ? (
-          <VerificationCard
-            checkedIn={checkedIn}
-            isCheckingIn={isCheckingIn}
-            onCheckIn={checkInPass}
-            result={result}
-          />
-        ) : null}
-      </div>
-    </main>
-  );
-}
-
-function ModeButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      aria-selected={active}
-      className={`rounded-lg px-4 py-2 text-sm font-medium ${active ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600"}`}
-      onClick={onClick}
-      role="tab"
-      type="button"
-    >
-      {children}
-    </button>
-  );
-}
-
-function VerificationCard({
-  checkedIn,
-  isCheckingIn,
-  onCheckIn,
-  result,
-}: {
-  checkedIn: boolean;
-  isCheckingIn: boolean;
-  onCheckIn: () => void;
-  result: VerifyPassResponse;
-}) {
-  const title = checkedIn
-    ? "CHECKED IN ✓"
-    : result.verificationStatus.replaceAll("_", " ");
-  const isValid = result.verificationStatus === "VALID";
-  return (
-    <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p
-            className={`text-sm font-semibold ${isValid ? "text-emerald-700" : "text-amber-700"}`}
+          <motion.div
+            key={result.pass.id + result.pass.status}
+            initial={reduced ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={getMotionTransition(Boolean(reduced))}
           >
-            {title}
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold">{result.event.name}</h2>
-          <p className="mt-1 text-zinc-600">{result.ticketType.name}</p>
-        </div>
-        <span className="rounded-full bg-zinc-100 px-3 py-1 text-sm font-medium">
-          {result.pass.status}
-        </span>
+            <Card>
+              <CardHeader>
+                <p className="mb-3 flex items-center gap-2 text-info">
+                  {result.verificationStatus === "ALREADY_CHECKED_IN" ? (
+                    <CheckCircle2 className="size-5" />
+                  ) : (
+                    <ShieldCheck className="size-5" />
+                  )}
+                  {check.isSuccess
+                    ? "CHECKED IN ✓"
+                    : result.verificationStatus.replaceAll("_", " ")}
+                </p>
+                <CardTitle className="text-h3">{result.event.name}</CardTitle>
+                <CardDescription>{result.ticketType.name}</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6">
+                <StatusBadge status={result.pass.status} />
+                <dl className="grid gap-5 sm:grid-cols-2">
+                  <Detail label="Holder">{result.holder.name}</Detail>
+                  <Detail label="Email">{result.holder.email}</Detail>
+                  <Detail label="Event time">
+                    {formatDate(result.event.startsAt)}
+                  </Detail>
+                  <Detail label="Location">
+                    {result.event.location ?? "TBA"}
+                  </Detail>
+                  <Detail label="Blockchain">
+                    {result.onChainStatus.replaceAll("_", " ")}
+                  </Detail>
+                  <Detail label="Token ID" mono>
+                    {result.pass.tokenId ?? "Not minted"}
+                  </Detail>
+                  <Detail label="Pass serial" mono>
+                    {result.pass.id}
+                  </Detail>
+                </dl>
+                {result.onChainStatus === "UNAVAILABLE" && (
+                  <Alert>
+                    <AlertTitle>Blockchain unavailable</AlertTitle>
+                    <AlertDescription>
+                      Database verification is authoritative. Valid passes can
+                      still check in.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                {result.checkIn && (
+                  <div className="rounded-lg border border-info/20 bg-info/5 p-4">
+                    <p className="text-info">Already checked in</p>
+                    <p className="mt-2 text-body-sm text-muted-foreground">
+                      {formatDate(result.checkIn.verifiedAt)} ·{" "}
+                      {result.checkIn.verifiedBy.name} · {result.checkIn.method}
+                    </p>
+                  </div>
+                )}
+                {result.canCheckIn && (
+                  <Button
+                    className="h-12 w-full"
+                    disabled={busy}
+                    onClick={() => check.mutate()}
+                  >
+                    {check.isPending ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <CheckCircle2 data-icon="inline-start" />
+                    )}
+                    {check.isPending ? "Checking in…" : "Confirm check-in"}
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => {
+                    setResult(null);
+                    setPassId("");
+                    verify.reset();
+                    check.reset();
+                    if (mode === "scanner") void startCamera();
+                  }}
+                >
+                  Next attendee
+                </Button>
+              </CardContent>
+            </Card>
+          </motion.div>
+        ) : (
+          <div className="flex min-h-72 flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border p-8 text-center">
+            <ShieldCheck className="size-10 text-muted-foreground" />
+            <h2 className="text-h3 font-semibold">
+              Ready for the next attendee
+            </h2>
+            <p className="max-w-xs text-body-sm text-muted-foreground">
+              The verified pass appears here. No check-in happens until you
+              confirm.
+            </p>
+          </div>
+        )}
       </div>
-      <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
-        <Detail label="Pass ID" value={result.pass.id} />
-        <Detail label="Holder" value={result.holder.name} />
-        <Detail label="Email" value={result.holder.email} />
-        <Detail label="Blockchain" value={result.onChainStatus} />
-        <Detail
-          label="Event time"
-          value={new Date(result.event.startsAt).toLocaleString()}
-        />
-        <Detail label="Location" value={result.event.location ?? "TBA"} />
-      </dl>
-      {result.checkIn ? (
-        <div className="mt-6 rounded-xl bg-zinc-50 p-4 text-sm">
-          <p className="font-medium">Already checked in</p>
-          <p className="mt-1 text-zinc-600">
-            {new Date(result.checkIn.verifiedAt).toLocaleString()} by{" "}
-            {result.checkIn.verifiedBy.name}
-          </p>
-        </div>
-      ) : null}
-      {result.canCheckIn ? (
-        <button
-          className="mt-6 rounded-lg bg-emerald-700 px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={isCheckingIn}
-          onClick={onCheckIn}
-          type="button"
-        >
-          {isCheckingIn ? "Checking in…" : "Confirm check-in"}
-        </button>
-      ) : null}
-    </section>
+    </>
   );
 }
-
-function scannerStatusText(state: ScannerState): string {
-  if (state === "starting") return "Requesting camera access…";
-  if (state === "scanning")
-    return "Camera active. Hold the attendee QR code inside the frame.";
-  if (state === "verifying") return "QR detected. Verifying…";
-  if (state === "expired")
-    return "QR expired. Ask the attendee to refresh their pass.";
-  if (state === "invalid")
-    return "Invalid QR. Scan a ChainPass verification code.";
-  if (state === "complete")
-    return "Scanner stopped. Review the result below or scan the next pass.";
-  if (state === "error")
-    return "Scanner unavailable. You can use the manual Pass ID fallback.";
-  return "Start the scanner when the attendee is ready.";
-}
-
-function cameraErrorMessage(error: unknown): string {
-  if (error instanceof DOMException && error.name === "NotAllowedError")
-    return "Camera permission denied. Allow camera access or use manual Pass ID instead.";
-  if (
-    error instanceof DOMException &&
-    (error.name === "NotFoundError" || error.name === "OverconstrainedError")
-  )
-    return "No usable camera was found. Use manual Pass ID instead.";
-  return "Unable to start the camera. Use manual Pass ID instead.";
-}
-
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-zinc-500">{label}</dt>
-      <dd className="mt-1 break-all font-medium">{value}</dd>
-    </div>
-  );
-}
-
-function PageMessage({
-  children,
-  description,
-  title,
-}: {
-  children?: React.ReactNode;
-  description?: string;
-  title: string;
-}) {
-  return (
-    <main className="grid min-h-screen place-items-center bg-zinc-50 px-6 text-zinc-950">
-      <section className="max-w-lg rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
-        <h1 className="text-2xl font-semibold">{title}</h1>
-        {description ? (
-          <p className="mt-3 text-zinc-600">{description}</p>
-        ) : null}
-        {children ? <div className="mt-5">{children}</div> : null}
-      </section>
-    </main>
-  );
-}
-
-function toErrorMessage(error: unknown, fallback: string): string {
+function verificationError(error: unknown) {
   if (error instanceof ApiClientError) {
-    if (error.status === 404) return "Pass not found.";
-    if (error.status === 403) return "You cannot verify this event's pass.";
+    if (error.code === "QR_TOKEN_EXPIRED")
+      return "QR code expired. Ask the attendee to refresh the pass and scan again.";
+    if (error.code === "INVALID_QR_TOKEN")
+      return "Invalid QR. Scan a ChainPass verification code.";
+    if (error.status === 404)
+      return "Pass not found. Check the ID and try again.";
+    if (error.status === 403)
+      return "This pass is not from an event you can manage.";
     if (error.code === "PASS_ALREADY_CHECKED_IN")
-      return "This pass has already been checked in.";
-    return error.message;
+      return "This pass is already checked in.";
   }
-  return fallback;
+  return errorMessage(error);
 }

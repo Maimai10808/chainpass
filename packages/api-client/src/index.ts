@@ -6,6 +6,7 @@ import {
   checkInResponseSchema,
   claimPassResultSchema,
   eventResponseSchema,
+  managedEventListSchema,
   mintPassResultSchema,
   passVerificationTokenResponseSchema,
   myWalletResponseSchema,
@@ -27,6 +28,7 @@ import {
   type CheckInResponse,
   type CreateWalletChallengeInput,
   type EventResponse,
+  type ManagedEventSummary,
   type PublicEventDetail,
   type PublicEventSummary,
   type PassView,
@@ -63,6 +65,21 @@ export function createApiClient(options: ChainPassApiClientOptions) {
   const fetcher = options.fetch ?? globalThis.fetch;
 
   return {
+    async listMyEvents(): Promise<ManagedEventSummary[]> {
+      const response = await fetcher(`${baseUrl}/events/mine`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw await toApiClientError(response);
+      return managedEventListSchema.parse(await response.json());
+    },
+
+    async listAdminEvents(): Promise<ManagedEventSummary[]> {
+      const response = await fetcher(`${baseUrl}/events/admin`, {
+        credentials: "include",
+      });
+      if (!response.ok) throw await toApiClientError(response);
+      return managedEventListSchema.parse(await response.json());
+    },
     async createEvent(input: CreateEventInput): Promise<EventResponse> {
       const payload = createEventInputSchema.parse(input);
       const response = await fetcher(`${baseUrl}/events`, {
@@ -367,6 +384,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export type {
+  ManagedEventSummary,
   CreateEventInput,
   CreateTicketTypeInput,
   ClaimPassResult,

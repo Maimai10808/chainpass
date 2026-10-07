@@ -60,10 +60,18 @@ export class PublicTicketTypeDto implements PublicTicketType {
   status!: 'ACTIVE';
 }
 
+class PublicEventOrganizerDto {
+  @ApiProperty()
+  name!: string;
+}
+
 export class PublicEventDetailDto
   extends PublicEventSummaryDto
   implements PublicEventDetail
 {
+  @ApiProperty({ type: PublicEventOrganizerDto })
+  organizer!: PublicEventOrganizerDto;
+
   @ApiProperty({ type: PublicTicketTypeDto, isArray: true })
   ticketTypes!: PublicTicketTypeDto[];
 }

@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { formatEventDate } from "@/lib/format";
 import { useTheme } from "@/hooks/use-theme";
+import { colors, duration, radius, spacing, typography } from "@/design";
 
 export const EventCard = memo(function EventCard({
   coverImageUrl,
@@ -27,7 +28,7 @@ export const EventCard = memo(function EventCard({
         style={({ pressed }) => [
           styles.card,
           {
-            backgroundColor: theme.background,
+            backgroundColor: colors.surface[1],
             borderColor: theme.border,
             opacity: pressed ? 0.72 : 1,
           },
@@ -40,7 +41,7 @@ export const EventCard = memo(function EventCard({
             recyclingKey={eventId}
             source={{ uri: coverImageUrl }}
             style={styles.cover}
-            transition={180}
+            transition={duration.fast}
           />
         ) : (
           <View
@@ -77,14 +78,14 @@ export const EventCard = memo(function EventCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 22,
+    borderRadius: radius.xl,
     borderCurve: "continuous",
     overflow: "hidden",
   },
   cover: { width: "100%", aspectRatio: 16 / 9 },
   placeholder: { alignItems: "center", justifyContent: "center" },
   placeholderText: { fontSize: 13, fontWeight: "800", letterSpacing: 2 },
-  content: { padding: 17, gap: 6 },
-  name: { fontSize: 20, lineHeight: 25, fontWeight: "700" },
+  content: { padding: spacing[20], gap: spacing[8] },
+  name: typography["title-3"],
   meta: { fontSize: 14, lineHeight: 20 },
 });

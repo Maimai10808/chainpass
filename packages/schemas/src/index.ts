@@ -51,6 +51,12 @@ export const createTicketTypeInputSchema = z
   })
   .strict();
 
+export const managedEventSummarySchema = eventResponseSchema.extend({
+  organizer: z.object({ id: z.string(), name: z.string() }).strict(),
+  ticketTypeCount: z.number().int().nonnegative(),
+});
+export const managedEventListSchema = z.array(managedEventSummarySchema);
+
 export const ticketTypeResponseSchema = z
   .object({
     id: z.string(),
@@ -96,6 +102,7 @@ export const publicTicketTypeSchema = z
 
 export const publicEventDetailSchema = publicEventSummarySchema.extend({
   ticketTypes: z.array(publicTicketTypeSchema),
+  organizer: z.object({ name: z.string() }).strict(),
 });
 
 export const publicEventListSchema = z.array(publicEventSummarySchema);
@@ -306,6 +313,7 @@ export const qrVerificationErrorSchema = z.enum([
 
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;
 export type EventResponse = z.infer<typeof eventResponseSchema>;
+export type ManagedEventSummary = z.infer<typeof managedEventSummarySchema>;
 export type EventStatus = z.infer<typeof eventStatusSchema>;
 export type CreateTicketTypeInput = z.infer<typeof createTicketTypeInputSchema>;
 export type TicketTypeResponse = z.infer<typeof ticketTypeResponseSchema>;

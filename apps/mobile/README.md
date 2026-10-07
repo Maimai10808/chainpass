@@ -53,9 +53,14 @@ auth/sign-up              Create account
 
 ## Verify
 
+Mobile UI work follows the [Mobile Design Contract](src/design/README.md).
+This dark-first foundation is Mobile-owned; it does not redesign the existing
+screens or share Web UI components.
+
 ```bash
 pnpm --filter mobile exec tsc --noEmit
 pnpm --filter mobile lint
+pnpm --filter mobile test
 pnpm --filter mobile exec expo install --check
 ```
 

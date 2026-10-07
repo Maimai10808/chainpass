@@ -1,37 +1,27 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Legacy screen aliases. New UI uses the Mobile-owned src/design foundation.
  */
 
-import "@/global.css";
-
 import { Platform } from "react-native";
+import { colors, layout, spacing, tones } from "@/design/tokens";
+
+const legacyDark = {
+  text: colors.foreground,
+  background: colors.background,
+  backgroundElement: colors.surface[1],
+  backgroundSelected: colors.surface[2],
+  textSecondary: colors.muted,
+  primary: colors.primary,
+  border: colors.border.default,
+  success: tones.success.foreground,
+  warning: tones.warning.foreground,
+  danger: tones.danger.foreground,
+} as const;
 
 export const Colors = {
-  light: {
-    text: "#000000",
-    background: "#ffffff",
-    backgroundElement: "#F0F0F3",
-    backgroundSelected: "#E0E1E6",
-    textSecondary: "#60646C",
-    primary: "#2563EB",
-    border: "#D9D9E0",
-    success: "#047857",
-    warning: "#B45309",
-    danger: "#B91C1C",
-  },
-  dark: {
-    text: "#ffffff",
-    background: "#000000",
-    backgroundElement: "#212225",
-    backgroundSelected: "#2E3135",
-    textSecondary: "#B0B4BA",
-    primary: "#60A5FA",
-    border: "#3F3F46",
-    success: "#34D399",
-    warning: "#FBBF24",
-    danger: "#F87171",
-  },
+  // Light design is deferred. Preserve old field access without white flashes.
+  light: legacyDark,
+  dark: legacyDark,
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
@@ -63,13 +53,13 @@ export const Fonts = Platform.select({
 
 export const Spacing = {
   half: 2,
-  one: 4,
-  two: 8,
-  three: 16,
-  four: 24,
-  five: 32,
-  six: 64,
+  one: spacing[4],
+  two: spacing[8],
+  three: spacing[16],
+  four: spacing[24],
+  five: spacing[32],
+  six: spacing[64],
 } as const;
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+export const MaxContentWidth = layout.contentMaxWidth;

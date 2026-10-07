@@ -1,18 +1,36 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import "@/global.css";
+
+import { DarkTheme, Stack, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useColorScheme } from "react-native";
+import { StatusBar } from "expo-status-bar";
+import * as SystemUI from "expo-system-ui";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { AppQueryProvider } from "@/lib/query-client";
+import { colors, tones } from "@/design/tokens";
 
 void SplashScreen.preventAutoHideAsync();
+void SystemUI.setBackgroundColorAsync(colors.background).catch(() => {
+  // Keep the app usable on platforms without SystemUI support.
+});
+const navigationTheme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    background: colors.background,
+    card: colors.surface[1],
+    text: colors.foreground,
+    border: colors.border.default,
+    primary: colors.primary,
+    notification: tones.danger.foreground,
+  },
+};
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <AppQueryProvider>
-      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+      <ThemeProvider value={navigationTheme}>
+        <StatusBar style="light" />
         <Stack>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="events/[eventId]" options={{ title: "Event" }} />

@@ -172,6 +172,187 @@ describe('Merchant create event', () => {
     });
   });
 
+  it('lists only the merchant own draft and published events with minimal organizer data', async () => {
+    const merchant = await signUpAs('merchant', 'own-list');
+    const other = await signUpAs('merchant', 'other-list');
+    const draft = await createEvent(merchant.cookie, 'Own draft');
+    const published = await createEvent(merchant.cookie, 'Own published');
+    const foreign = await createEvent(other.cookie, 'Private foreign draft');
+    await request(app.getHttpServer())
+      .post(`/events/${published.id}/ticket-types`)
+      .set('Cookie', merchant.cookie)
+      .send({ name: 'General', totalSupply: 2, price: 0 })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/events/${published.id}/publish`)
+      .set('Cookie', merchant.cookie)
+      .expect(200);
+
+    const response = await request(app.getHttpServer())
+      .get('/events/mine')
+      .set('Cookie', merchant.cookie)
+      .expect(200);
+    expect(
+      response.body.map((event: { id: string }) => event.id).sort(),
+    ).toEqual([draft.id, published.id].sort());
+    expect(response.body).not.toContainEqual(
+      expect.objectContaining({ id: foreign.id }),
+    );
+    expect(response.body).toContainEqual(
+      expect.objectContaining({
+        id: draft.id,
+        status: 'DRAFT',
+        ticketTypeCount: 0,
+        organizer: { id: merchant.userId, name: 'merchant test user' },
+      }),
+    );
+    expect(response.body).toContainEqual(
+      expect.objectContaining({
+        id: published.id,
+        status: 'PUBLISHED',
+        ticketTypeCount: 1,
+      }),
+    );
+    expect(Object.keys(response.body[0].organizer).sort()).toEqual([
+      'id',
+      'name',
+    ]);
+
+    const publicList = await request(app.getHttpServer())
+      .get('/events')
+      .expect(200);
+    expect(publicList.body).not.toContainEqual(
+      expect.objectContaining({ id: draft.id }),
+    );
+    expect(publicList.body).not.toContainEqual(
+      expect.objectContaining({ id: foreign.id }),
+    );
+    const publicDetail = await request(app.getHttpServer())
+      .get(`/events/${published.id}`)
+      .expect(200);
+    expect(publicDetail.body.organizer).toEqual({ name: 'merchant test user' });
+    await request(app.getHttpServer()).get(`/events/${draft.id}`).expect(404);
+  });
+
+  it('allows only admin to list all platform drafts and published events', async () => {
+    const admin = await signUpAs('admin', 'platform-list');
+    const merchant = await signUpAs('merchant', 'platform-list');
+    const mine = await createEvent(admin.cookie, 'Admin draft');
+    const foreign = await createEvent(merchant.cookie, 'Merchant draft');
+    const response = await request(app.getHttpServer())
+      .get('/events/admin')
+      .set('Cookie', admin.cookie)
+      .expect(200);
+    expect(response.body).toContainEqual(
+      expect.objectContaining({ id: mine.id }),
+    );
+    expect(response.body).toContainEqual(
+      expect.objectContaining({
+        id: foreign.id,
+        status: 'DRAFT',
+        organizerId: merchant.userId,
+      }),
+    );
+    const own = await request(app.getHttpServer())
+      .get('/events/mine')
+      .set('Cookie', admin.cookie)
+      .expect(200);
+    expect(own.body.map((event: { id: string }) => event.id)).toEqual([
+      mine.id,
+    ]);
+    await request(app.getHttpServer())
+      .get('/events/admin')
+      .set('Cookie', merchant.cookie)
+      .expect(403);
+  });
+
+  it('rejects normal users on both management lists despite public event read permission', async () => {
+    const user = await signUpAs('user', 'list-forbidden');
+    await request(app.getHttpServer())
+      .get('/events/mine')
+      .set('Cookie', user.cookie)
+      .expect(403);
+    const response = await request(app.getHttpServer())
+      .get('/events/admin')
+      .set('Cookie', user.cookie)
+      .expect(403);
+    expect(response.body.code).toBe('EVENT_LIST_FORBIDDEN');
+  });
+
+  it('rejects anonymous requests to both management lists', async () => {
+    await request(app.getHttpServer()).get('/events/mine').expect(401);
+    await request(app.getHttpServer()).get('/events/admin').expect(401);
+  });
+
+  it('promotes a user through the Better Auth admin API, not through registration', async () => {
+    const registration = {
+      name: 'Registration remains user',
+      email: `${testEmailPrefix}-registration@chainpass.local`,
+      password: 'ChainPass123!',
+    };
+    await request(app.getHttpServer())
+      .post('/api/auth/sign-up/email')
+      .set('Origin', 'http://localhost:3000')
+      .send({ ...registration, role: 'admin' })
+      .expect(400);
+    const response = await request(app.getHttpServer())
+      .post('/api/auth/sign-up/email')
+      .set('Origin', 'http://localhost:3000')
+      .send(registration)
+      .expect(200);
+    expect(response.body.user.role).toBe('user');
+    const userId = response.body.user.id as string;
+    const admin = await signUpAs('admin', 'promotion');
+    const ordinary = await signUpAs('user', 'promotion');
+    await request(app.getHttpServer())
+      .post('/api/auth/admin/set-role')
+      .set('Origin', 'http://localhost:3000')
+      .set('Cookie', ordinary.cookie)
+      .send({ userId, role: 'merchant' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .post('/api/auth/admin/set-role')
+      .set('Origin', 'http://localhost:3000')
+      .set('Cookie', admin.cookie)
+      .send({ userId, role: 'merchant' })
+      .expect(200);
+    expect(
+      (await prisma.user.findUnique({ where: { id: userId } }))?.role,
+    ).toBe('merchant');
+    const listed = await request(app.getHttpServer())
+      .get('/api/auth/admin/list-users')
+      .query({
+        searchField: 'email',
+        searchOperator: 'contains',
+        searchValue: `${testEmailPrefix}-registration`,
+      })
+      .set('Cookie', admin.cookie)
+      .expect(200);
+    expect(listed.body.users).toContainEqual(
+      expect.objectContaining({ id: userId, role: 'merchant' }),
+    );
+    await request(app.getHttpServer())
+      .get('/api/auth/admin/list-users')
+      .set('Cookie', ordinary.cookie)
+      .expect(403);
+  });
+
+  async function createEvent(
+    cookie: string,
+    name: string,
+  ): Promise<{ id: string }> {
+    const response = await request(app.getHttpServer())
+      .post('/events')
+      .set('Cookie', cookie)
+      .send({
+        name,
+        startsAt: '2026-11-10T01:00:00.000Z',
+        endsAt: '2026-11-10T09:00:00.000Z',
+      })
+      .expect(201);
+    return response.body as { id: string };
+  }
+
   async function signUpAs(
     role: 'admin' | 'merchant' | 'user',
     label = 'default',

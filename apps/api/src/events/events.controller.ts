@@ -29,6 +29,7 @@ import {
 import type {
   CreateEventInput,
   EventResponse,
+  ManagedEventSummary,
   PublicEventDetail,
   PublicEventSummary,
 } from '@chainpass/schemas';
@@ -39,6 +40,7 @@ import {
   CreateEventValidationPipe,
 } from './dto/create-event.dto.js';
 import { EventResponseDto } from './dto/event-response.dto.js';
+import { ManagedEventSummaryDto } from './dto/managed-event-summary.dto.js';
 import {
   PublicEventDetailDto,
   PublicEventSummaryDto,
@@ -131,6 +133,41 @@ export class EventsController {
   @ApiOkResponse({ type: PublicEventSummaryDto, isArray: true })
   listPublished(): Promise<PublicEventSummary[]> {
     return this.eventsService.listPublished();
+  }
+
+  @Get('mine')
+  @ApiCookieAuth('session')
+  @UserHasPermission({ permission: { event: ['update'] } })
+  @ApiOperation({
+    operationId: 'listMyEvents',
+    summary: 'List own draft and published events',
+  })
+  @ApiOkResponse({ type: ManagedEventSummaryDto, isArray: true })
+  @ApiUnauthorizedResponse({ description: 'Authentication required' })
+  @ApiForbiddenResponse({ description: 'Merchant or admin access required' })
+  listMine(
+    @Session() session: UserSession<typeof auth>,
+  ): Promise<ManagedEventSummary[]> {
+    return this.eventsService.listManaged(session.user);
+  }
+
+  @Get('admin')
+  @ApiCookieAuth('session')
+  @UserHasPermission({ permission: { event: ['read'] } })
+  @ApiOperation({
+    operationId: 'listAdminEvents',
+    summary: 'List all platform events (admin only)',
+  })
+  @ApiOkResponse({ type: ManagedEventSummaryDto, isArray: true })
+  @ApiUnauthorizedResponse({ description: 'Authentication required' })
+  @ApiForbiddenResponse({
+    description:
+      'Explicit admin role required; event read alone is insufficient',
+  })
+  listAdmin(
+    @Session() session: UserSession<typeof auth>,
+  ): Promise<ManagedEventSummary[]> {
+    return this.eventsService.listManaged(session.user, true);
   }
 
   @Get(':eventId/manage')

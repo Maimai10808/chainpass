@@ -7,6 +7,7 @@ import {
 import type {
   CreateEventInput,
   EventResponse,
+  ManagedEventSummary,
   PublicEventDetail,
   PublicEventSummary,
   PublicTicketType,
@@ -16,6 +17,35 @@ import { prisma } from '../database/prisma.js';
 
 @Injectable()
 export class EventsService {
+  async listManaged(
+    user: { id: string; role?: string | null },
+    platform = false,
+  ): Promise<ManagedEventSummary[]> {
+    if (
+      (platform && user.role !== 'admin') ||
+      (!platform && user.role !== 'merchant' && user.role !== 'admin')
+    ) {
+      throw new ForbiddenException({
+        code: 'EVENT_LIST_FORBIDDEN',
+        message: platform
+          ? 'Admin access required'
+          : 'Merchant access required',
+      });
+    }
+    const events = await prisma.event.findMany({
+      where: platform ? {} : { organizerId: user.id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        organizer: { select: { id: true, name: true } },
+        _count: { select: { ticketTypes: true } },
+      },
+    });
+    return events.map(({ organizer, _count, ...event }) => ({
+      ...this.toResponse(event),
+      organizer,
+      ticketTypeCount: _count.ticketTypes,
+    }));
+  }
   async create(
     input: CreateEventInput,
     organizerId: string,
@@ -73,6 +103,7 @@ export class EventsService {
     const event = await prisma.event.findFirst({
       where: { id: eventId, status: 'PUBLISHED' },
       include: {
+        organizer: { select: { name: true } },
         ticketTypes: {
           where: { status: 'ACTIVE' },
           orderBy: { createdAt: 'asc' },
@@ -89,6 +120,7 @@ export class EventsService {
 
     return {
       ...this.toPublicSummary(event),
+      organizer: event.organizer,
       ticketTypes: event.ticketTypes.map((ticketType) =>
         this.toPublicTicketType(ticketType),
       ),

@@ -1,178 +1,71 @@
-# ChainPass Hackathon Development Scope
+# ChainPass 开发范围 / Development Scope
 
-本文定义三天 Hackathon 的实现顺序、完成标准与明确非目标。产品语义以 [PRODUCT_BRIEF.md](../PRODUCT_BRIEF.md) 为准，工程边界见 [ARCHITECTURE.md](./ARCHITECTURE.md)，身份与接口规则分别见 [AUTH_ARCHITECTURE.md](./AUTH_ARCHITECTURE.md) 和 [API_CONTRACT.md](./API_CONTRACT.md)。
+[中文](#zh) · [English](#en)
 
-## 1. 唯一 P0
+<a id="zh"></a>
 
-```text
-Merchant Login
-    ↓
-Create Event
-    ↓
-Create / Issue Ticket
-    ↓
-User Browse Event
-    ↓
-Claim Pass
-    ↓
-Mint On-chain
-    ↓
-My Pass
-    ↓
-Verify Pass
-    ↓
-Check-in
-```
+## 中文
 
-目标不是代码量或模块数量最大，而是一条可以真实演示、状态一致、权限可信的完整 ChainPass 流程。不能直接推进该流程的工作默认降级。
+当前优先级是一条真实业务闭环，而不是目录/框架数量。三天 Hackathon 最初目标已扩展为当前 Web/Native 实现；不要把历史计划当今天状态。
 
-## 2. 当前起点
+### 已实现
 
-已存在：
+- Better Auth Session/RBAC，User/Merchant/Admin 与资源归属规则。
+- Merchant Event/ACTIVE TicketType/Publish，PUBLIC 发现与默认 INVITE_ONLY。
+- 指定票种邀请：创建、限次数/有效期、分享、撤销、匿名预览。
+- Claim：quota/stock/Pass 同事务，独立 owner Pass 与防重复。
+- My Passes/Detail、签名 Wallet Binding、issuer Mint/链 DB 恢复。
+- 动态 HMAC QR、原有 Verify/原子 CheckIn、QR/手工模式。
+- Web 三角色产品；Mobile 三角色 Native 界面与邀请交接/分享入口。
+- Sepolia 合约部署、Sourcify 与历史真实应用 Mint 证据。
+- Docker 生产配置、CI 与人工触发 CD；实验五端工程骨架。
 
-- Better Auth Server、Web/Mobile Client、Session、`admin`/`merchant`/`user` 权限定义；
-- PostgreSQL Docker Compose 与 Better Auth Prisma 模型；
-- Next.js、NestJS、Expo 应用骨架；
-- Foundry ERC-721 `ChainPass` 原型；
-- `api-client`、`schemas` 的 Create Event Contract，以及 `web3` 共享包骨架；
-- Merchant Create Event Vertical Slice：Event 模型、`POST /events`、OpenAPI、共享 Client 与 Web 创建页。
-- Merchant Issue TicketType Vertical Slice：TicketType 模型、容量/金额约束、Ownership 授权、创建/列表 API、共享 Client 与 Event 管理页。
-- Publish Event + User Browse Event Vertical Slice：发布规则、Draft 公开隔离、公开活动列表/详情、ACTIVE TicketType 与服务端剩余量视图。
-- User Claim Pass + My Passes Vertical Slice：Pass 模型、原子库存扣减、重复领取约束、Claim API 与 Web 持票列表。
-- Wallet Binding + Blockchain Mint Vertical Slice：签名 challenge、单 Wallet 绑定、issuer-only non-transferable ERC-721、Anvil 集成、链/DB 恢复与 Web Mint 状态。
-- Ethereum Sepolia Deployment：`ChainPass` 已部署至 chain ID `11155111`，完成 bytecode/owner/ERC-721 metadata 读取、Sourcify 精确匹配验证、真实 smoke mint，以及经 Better Auth、Wallet Binding、NestJS Mint API 与 PostgreSQL 回写的 application-level mint E2E；部署公开证据记录于 `contracts/deployments/sepolia.json`。
-- Merchant Verify / Check-in Vertical Slice：Event Ownership 核验、只读 Pass Verify、原子 CheckIn、防并发重复核销与 Merchant Web 操作页。
-- Dynamic QR Verification Vertical Slice：短时 HMAC Credential、用户动态 QR、Merchant 摄像头扫描，以及复用既有 Verify/Check-in。
-- Web 产品界面：正式 Auth、统一角色导航、公开首页/活动、User Pass 票面与钱包/Mint/QR、Merchant Dashboard/活动/核销、Admin Dashboard/用户提升 Merchant/平台活动。数据来自现有 API 与最小受限活动列表接口；无支付、活动编辑/删除、Admin 自助注册或复杂统计。
-- Invitation-only Claim（Web / Mobile）：新建活动默认邀请制，可显式公开；历史活动保持 PUBLIC。商家为已发布活动创建可转发、绑定具体票种、限次数且有有效期的邀请，并可撤销。用户经邀请预览、登录/注册返回后复用现有 Claim；邀请次数、库存与 Pass 创建同事务，已领取 Pass 继续使用原 Mint/QR/Check-in。Mobile 增加粘贴链接/安装深链入口、SecureStore 暂存与原生分享，不新增服务端规则。详见 [API_CONTRACT.md](./API_CONTRACT.md)。
-- Mobile 角色体验：Better Auth Expo/SecureStore 登录、公开活动/邀请 Claim、My Passes、Wallet/Mint、动态 QR，以及消费既有 API 的 Merchant/Admin 工作区。代码实现与原生设备验收分开记录，见 [Mobile README](../apps/mobile/README.md)。
-- Production Deployment Artifacts：Web/API production image、Nginx same-origin routing、PostgreSQL persistence/health、Prisma deploy migration 与单服务器操作文档。
-- Huawei Cloud Production / CI/CD：HTTP 单服务器部署、main/develop CI 与人工触发的 GitHub Production Deploy 已有成功记录；生产四容器健康、数据库连接与公网入口已只读复核。具体 release、尚未进入 main 的 workflow 加固与配置漂移见 [DEPLOYMENT.md](./DEPLOYMENT.md)，不能把健康检查视为所有生产业务已验收。
+### 完成与验收分层
 
-尚未实现或尚未接通：
+已有 2026-10-08 本地邀请浏览器/API/DB 验收、93 个 E2E 通过 / 1 个 opt-in 跳过、Mobile 25 个纯逻辑测试与 Hermes 导出 记录；详见[Mobile](../apps/mobile/README.md#zh)。这些是历史记录，本轮文档未重跑。
 
-- Mobile 相机、haptics、外部钱包跳转、系统分享、SecureStore 重启恢复和安装深链的 iOS/Android 真机验收；
-- HTTPS Universal Links / Android App Links（当前只提供自定义 scheme 与粘贴邀请链接）；
-- 域名 DNS、HTTPS / Camera secure-context 验收，异机备份/恢复演练与生产浏览器 Wallet 全链路验收；
+尚需验证：iOS/Android 安装、相机、外部钱包签名返回、haptics、系统分享、SecureStore 进程重启与安装深链。无 HTTPS Universal/App Links。生产 HTTP/camera、异机备份/restore 与 issuer 长期托管仍未完成；当前分支不自动代表线上版本。
 
-因此后续任务应以完成 Vertical Slice 为目标，不能把骨架目录视为已交付能力。
-
-## 3. 第一阶段核心模型
-
-当前只优先引入：
-
-- Better Auth `User`：唯一用户身份，已经存在；
-- `Event`：活动与 organizer 关系；
-- `TicketType`：票种、容量/库存语义；
-- `Pass`：领取、持有、Mint 与当前业务状态；
-- `Wallet`：Better Auth User 唯一的 canonical、已验证链上地址；
-- `CheckIn`：核验/核销记录与防重依据。
-- `Invitation`：绑定一个 TicketType 的可转发领取资格、quota、expiry、revocation；不是第二套身份或现场 QR。
-
-必要的 Wallet 关联、交易记录或 outbox-like 状态只有在 Mint/Check-in Slice 的一致性设计明确需要时才加入，并保持最小。未经讨论不扩展大量 Domain Entity，也不创建第二套 User/MerchantUser/WalletUser。
-
-## 4. Vertical Slice
-
-不要按“先做完全部 Backend，再做全部 Web，再做全部 Mobile”的水平分层推进。每个功能按以下闭环完成：
+### 验收路径
 
 ```text
-Database
-    ↓
-API + Authorization
-    ↓
-OpenAPI + Shared Client
-    ↓
-Web or Mobile primary flow
-    ↓
-Minimum tests and verification
-    ↓
-Done
+Merchant create → ticket → publish → invitation / explicit public
+→ User login/claim → own Pass
+→ optional wallet/mint → QR
+→ Merchant verify/confirm → CHECKED_IN → replay rejected
+→ User foreground/refetch shows new state
 ```
 
-一个 Slice 没有满足 Definition of Done 前，不把相邻页面或基础设施扩建当作进度替代品。
+没有钱包仍应可核销。演示数据库手工 INSERT/直接合约 Mint 不能代替应用路径；公共链测试必须有明确授权，不能因为 CI 通过就广播交易。
 
-## 5. 推荐实现顺序
+### Vertical Slice 与 Definition of Done
 
-1. Merchant Create Event：业务模型、Session organizer、权限、创建页面。**已完成**
-2. TicketType / Issue Ticket：最小票种与容量规则，不做座位系统。**已完成**
-3. Event List / Detail：发布状态与用户可见范围。**已完成**
-4. User Claim Pass：Session owner、库存/重复领取约束和 Pass 记录。**已完成**
-5. My Passes：仅返回当前用户可见 Pass。**已完成**
-6. Blockchain Mint：明确 signer、网络、ID 映射、交易状态和失败处理后接入。**已完成（本地 Anvil + Ethereum Sepolia Application E2E）**
-7. Pass On-chain Verification：展示可核对的 chain、contract、token 与 transaction 信息。**已完成**
-8. Merchant Verify / Check-in：权限、活动 Ownership、防重复核销和状态更新。**已完成**
-9. QR Code：只编码不可伪造或可服务端验证的最小凭证，不承载可信业务状态。**已完成（Web）**
-10. Mobile UX：覆盖用户登录、活动浏览、领取、My Pass 与动态二维码。**已完成（用户端）**
-11. UI Polish：只优化已跑通的主流程。
-12. Server Deployment：华为云 HTTP 服务与 GitHub 人工触发发布已落地；域名/HTTPS 与长期运维验收仍待完成。日常发布和回滚遵循 [OPERATIONS.md](./OPERATIONS.md)，不在服务器构建项目。
+DB/constraints → API/authorization → DTO/OpenAPI/schema/client → clientUX → tests/acceptance。一个 Slice 至少满足正常/拒绝路径、loading/empty/error、服务端幂等或冲突、Secret 边界和文档；链业务另需真实 chain/receipt/hash 关联证据。
 
-如果 Demo 风险要求调整次序，应保留同样的端到端闭环和权限约束。
+后续修改邀请不复制 Claim，QR 不复制核销，角色扩展不新建 Auth。接口变更原子更新消费者，实验端不加入生产门禁。日常发布见[运维](./OPERATIONS.md#zh)。
 
-## 6. Definition of Done
+### 非目标
 
-一个核心功能至少满足：
+支付/退款、转让/二级市场、组织多租户、复杂 analytics、钱包登录、微服务/Kubernetes/队列、无真实消费者的共享 UI 与状态平台不在当前范围。活动编辑/删除、Pass 撤销 API 也未实现，不允许用界面伪装。
 
-- Prisma/数据库模型、约束和迁移与业务语义一致；
-- API 可运行，DTO/OpenAPI/Client 与调用方一致；
-- 身份来自 Better Auth Session，Role、Permission、Ownership、Business Rule 均正确；
-- 主目标端可以完成正常流程，并处理 loading、empty、validation 和基本错误状态；
-- 重复请求和关键冲突有服务端规则，不能只靠 UI 防止；
-- 存在覆盖核心成功路径与关键拒绝路径的最小测试；
-- 相关 lint、typecheck、test/build 通过，或已明确记录外部阻塞；
-- 文档没有把计划状态写成已完成功能。
+需求先判断是否推进闭环、能否验收、是否保持 API/Auth/数据边界；遇到新的高风险授权或范围扩张先明确决策。
 
-涉及链上操作时还必须满足：
+---
 
-- 网络、合约地址、ABI 和 transaction hash 可追溯；
-- DB 与链上 ID 映射明确；
-- pending/confirmed/failed 状态和重试/幂等规则明确；
-- 不在客户端暴露服务端 secret 或 signer private key。
+<a id="en"></a>
 
-## 7. Demo 验收路径
+## English
 
-最终 Demo 应尽可能在一个环境中完成：
+Prioritize one real business loop, not directory/framework count. The original three-day target has evolved into current Web/native implementation; historical plans are not current state.
 
-```text
-Merchant 登录并创建活动/票种
-  → 发布并分享票种邀请（或显式公开供 Discover 浏览）
-  → User 登录并领取自己的 Pass
-  → Pass 完成链上 Mint
-  → User 在 My Pass 查看链上信息与二维码
-  → Merchant 核验并 Check-in
-  → 重复 Check-in 被拒绝
-  → My Pass 与 Merchant 端状态更新
-```
+Implemented: Better Auth/RBAC/ownership; events/tickets/publication and default invitations; ticket-specific quota/expiry/share/revoke/preview; atomic claim; owner Pass/detail; signature Wallet/Mint/recovery; HMAC QR and existing verify/atomic admission; Web/Mobile role workspaces; Sepolia deployment/mint evidence; Docker/CI/manual CD; five experimental scaffolds.
 
-演示数据、手工数据库修改或直接合约调用不能替代产品路径；如果某一步仍为 mock，必须在 Demo 和文档中明确标识。
+Recorded 2026-10-08 local invitation acceptance includes 93 E2E/one opt-in skip, 25 Mobile pure tests and Hermes exports. See [Mobile](../apps/mobile/README.md#en). Not rerun during this documentation edit.
 
-## 8. 明确非目标
+Pending: physical installation/camera/wallet handoff/haptics/sharing/SecureStore restart/deep links; Universal/App Links; HTTPS camera and off-host restore/issuer custody. Current source does not automatically equal live production.
 
-当前阶段不主动实现：
+Acceptance: merchant create/ticket/publish/invite or explicit public → user login/claim → optional wallet/mint → QR → merchant verify/confirm → CHECKED_IN/replay rejected → foreground/refetch. Off-chain admission must work. Direct DB inserts/contract mints cannot impersonate application acceptance; chain writes need explicit authority.
 
-- 微服务、Kubernetes、Service Mesh；
-- CQRS、Event Sourcing、通用 Event Bus；
-- Kafka、RabbitMQ；
-- Redis，除非一个已观察到的主链需求无法用现有栈解决；
-- 过度抽象的 Repository、Domain Layer 或跨应用 UI 系统；
-- NFT Marketplace、二级票务市场、Token Economy；
-- DAO、DeFi、虚拟货币支付；
-- 推荐系统、AI、社交、元宇宙、数字孪生；
-- 完整支付、复杂退款、复杂座位或黄牛治理；
-- 企业级多租户、多级代理商和与 Demo 无关的平台治理；
-- 为未来移动端兼容性提前设计复杂 API versioning；
-- 与主流程无关的 Nginx/集群/可观测性平台建设。
+Vertical slice: DB constraints → API authorization → DTO/OpenAPI/schema/client → UX → tests. Done includes success/rejection, loading/empty/error, server idempotency/conflict, secret boundaries and docs. Chain changes additionally need chain/receipt/hash evidence. Reuse claim/admission/Auth; update consumers atomically; keep experimental checks separate.
 
-出现真实、可复现的主链阻塞时，可以提出最小例外方案；例外必须说明问题、最小范围和退出条件，而不是把非目标整体引入。
-
-## 9. Scope 决策规则
-
-开始一个需求前依次判断：
-
-1. 它是否直接推进 P0 主链或修复主链阻塞？
-2. 它是否可以作为一个可验收的 Vertical Slice 完成？
-3. 它是否保持现有 Better Auth、Monorepo、API Contract 和数据职责边界？
-4. 它是否引入了本阶段非目标或尚无消费者的抽象？
-
-前三项不能明确回答“是”，或第四项回答“是”时，先停止扩展并请求产品/架构决策。
-
-三天结束时，成功标准是一个真实可演示的闭环，而不是一个拥有最多目录、实体、服务或抽象层的代码库。
+Not in scope: payments/refunds/transfer/marketplace/complex analytics/teams/wallet login/microservices/clusters/queues/speculative shared UI. Event edit/delete and Pass revocation APIs are absent. See [operations](./OPERATIONS.md#en) for release; material scope/authority expansions require a decision.

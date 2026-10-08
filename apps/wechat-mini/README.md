@@ -1,6 +1,12 @@
-# ChainPass WeChat Mini Program
+# ChainPass 微信小程序 / WeChat Mini Program
 
-Experimental Taro 4 / React 18 / Vite 4 scaffold, not a complete ticketing client.
+[中文](#zh) · [English](#en)
+
+<a id="zh"></a>
+
+## 中文
+
+Taro 4/React 18/Vite 4 实验工程，只显示欢迎页，不实现微信登录、支付或票务。
 
 ```bash
 pnpm --filter @chainpass/wechat-mini dev
@@ -9,15 +15,25 @@ pnpm --filter @chainpass/wechat-mini typecheck
 pnpm --filter @chainpass/wechat-mini lint
 ```
 
-`dev` aliases `dev:weapp` (watch); `build` aliases `build:weapp`. Import this app's
-`project.config.json` into WeChat DevTools after building; `dist` is generated.
-`touristappid` is the scaffold's no-credential default, not a production App ID.
-For an actual development app use Taro's `TARO_APP_ID` environment configuration.
+dev→dev:weapp watch，build→build:weapp。构建后在微信开发者工具导入 project.config.json；dist 是产物。touristappid 只是免凭证模板值，真实开发 App 使用 TARO_APP_ID。
 
-Taro's original platform scripts/plugins are retained to avoid changing its
-framework compatibility matrix during workspace integration. Only WeChat is
-validated here; other platform builds are not accepted capabilities. Local
-TypeScript scopes automatic types to Node/React and uses `skipLibCheck` for Taro's
-upstream multi-platform declaration conflicts; app/config source remains checked.
-The scaffold
-does not initialize a nested Git repository or install root Git hooks.
+为兼容保留原多平台脚本/插件，仅 WeChat 构建已验收，其余不能算支持完成。tsconfig 限制自动 types 为 Node/React，skipLibCheck 处理 Taro 上游多平台声明冲突，应用/config 源码仍检查。不再创建嵌套 Git 或 root hook。见[实验边界](../../docs/EXPERIMENTAL_PLATFORMS.md#zh)。
+
+---
+
+<a id="en"></a>
+
+## English
+
+Taro 4/React 18/Vite 4 welcome scaffold, no WeChat login/payment/ticketing.
+
+```bash
+pnpm --filter @chainpass/wechat-mini dev
+pnpm --filter @chainpass/wechat-mini build
+pnpm --filter @chainpass/wechat-mini typecheck
+pnpm --filter @chainpass/wechat-mini lint
+```
+
+dev aliases dev:weapp watch, build aliases build:weapp. Import project.config.json into WeChat DevTools; dist is generated. touristappid is a no-credential template default, not productionID; use TARO_APP_ID for real development.
+
+Original platform scripts/plugins remain for compatibility; only WeChat is accepted. Node/React automatic types and skipLibCheck handle upstream declarations; app/config source stays checked. No nested Git/root hooks. See [boundaries](../../docs/EXPERIMENTAL_PLATFORMS.md#en).

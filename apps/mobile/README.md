@@ -1,7 +1,136 @@
 # ChainPass Mobile
 
+[中文](#zh) · [English](#en)
+
+<a id="zh"></a>
+
+## 中文
+
+一个 Expo / React Native 应用，按服务器返回的角色提供用户、商家和管理员工作区。界面遵守 [Mobile 设计约束](src/design/README.md#zh)；身份、授权和票务规则由 Better Auth 与现有 API 负责。
+
+### 配置与运行
+
+首次配置时复制 `.env.example` 为被 Git 忽略的 `.env`；已有配置不要覆盖。`EXPO_PUBLIC_API_URL` 必须能从设备访问：本地真机使用电脑当前的局域网地址，而不是 `localhost`。生产网关地址包含 `/api`，Mobile 会正确推导 Auth 的 `/api/auth` 路径，不重复拼接前缀。
+
+- `EXPO_PUBLIC_REOWN_PROJECT_ID`：真实的公共项目 ID。缺失时禁用钱包连接，不影响浏览、领票和 QR。
+- `EXPO_PUBLIC_APP_URL`：Web 公共 origin，用于分享邀请和钱包元数据；不能填 API 的 `/api` 地址。
+- `@chainpass/web3`：提供 Ethereum Sepolia、chain ID `11155111` 和 Explorer 工具，不另建一套链配置。
+- 数据库、issuer、Auth 和 QR 签名密钥都不进入 App。
+
+```bash
+pnpm install
+pnpm --filter mobile dev
+```
+
+保留 `chainpass://` scheme。入口先加载官方 WalletConnect 兼容 polyfill，再启动 Expo Router；Reown 使用官方 Ethers adapter，不要求用户输入私钥。完整原生钱包验收需要 development build；Metro 导出成功不证明 Expo Go 支持全部原生依赖。不要手工维护生成的 `ios/`、`android/` 工程。
+
+Expo Web 本地预览：
+
+```bash
+EXPO_PUBLIC_API_URL=http://localhost:3001 pnpm --filter mobile web
+```
+
+浏览器 origin 必须符合 API 的 CORS 和 `trustedOrigins`，不能关闭 Origin/CSRF 保护来绕过配置问题。
+
+### 导航与身份
+
+```text
+src/app/
+  _layout                         Session 恢复、Providers、Native Stack
+  (tabs)/                         User：Discover / My Passes / Profile
+  auth/sign-in, auth/sign-up       原生登录、普通用户注册
+  invite                          匿名预览、登录往返、领取
+  events/[eventId]                 公开活动详情、领取
+  my-passes/[passId]               Pass、QR、Wallet、Mint
+  merchant/
+    (tabs)/                       Overview / Events / Check-in / Profile
+    events/new                    原生日期时间表单
+    events/[eventId]               票种、发布、邀请创建/分享/撤销
+  admin/(tabs)/                    Overview / Users / Events / Profile
+```
+
+`session.user.role` 决定工作区，没有本地角色切换。受保护的深链使用允许列表内的 `returnTo` 登录返回。Admin 可跨组织者管理；注册不提交角色，商家身份由 Admin API 提升。
+
+初次 Session 恢复有加载边界，后续刷新不卸载已初始化的导航。登录/注册成功后，要等 Session hook 与新身份一致再跳转。
+
+### 数据与凭证边界
+
+业务数据经 `api-client` / `schemas`；Admin 用户列表和角色提升经 Better Auth `adminClient`。原生 Session 使用 SecureStore，并为业务请求提供认证 Cookie，不创建第二套 Token 存储。WalletConnect 的带前缀 AsyncStorage 只保存连接元数据。
+
+Query key 集中在 `lib/product.ts`。私有数据的 key 包含 User ID，身份/角色变化或退出时清理；公共缓存独立，mutation 不自动重试。钱包流程是获取 API challenge、签名、复核身份、verify；连接成功不等于已经绑定。Mint 仍调用现有 API，由服务器签发链上交易，客户端展示确认后的字段。
+
+QR 凭证只保存在内存，根据服务器有效期提前十秒刷新，过期即隐藏。失焦或进入后台时停止定时器并清除凭证；回到前台重新查询。Pass 详情只在可见且前台时每五秒轮询。`CHECKED_IN` / `REVOKED` 不展示可用 QR。
+
+### 邀请制
+
+商家新建活动默认 `INVITE_ONLY`，也可显式选择 `PUBLIC`；Discover 只列公开且已发布的活动。邀请制活动发布并具备 ACTIVE 票种后，可创建有次数和期限限制的邀请。
+
+系统分享使用 `<EXPO_PUBLIC_APP_URL>/invite#token=…`，也可提供已安装 App 的 `chainpass://invite#token=…` 链接。服务器只在创建时返回一次原始 token，离开前应保存或分享；列表只显示次数和期限。撤销邀请不影响已经领取的 Pass。
+
+用户可在 Open invitation 粘贴完整 Web 链接。App 只提取凭证，不访问任意粘贴 URL。预览只展示指定票种；登录/注册后返回 `/invite`，通过既有 Claim API 创建独立 Pass，再进入 Pass / QR 页面。
+
+待领取凭证在原生端独立存入 SecureStore；**Mobile 的 Expo Web 预览**使用当前 tab 的 sessionStorage。保留时间不超过 30 分钟或已知服务器有效期。新链接替换旧凭证，非法新链接不回退旧邀请。领取成功、主动清除、退出、身份/角色变化，或邀请过期/撤销/耗尽时清除。
+
+持久化失败会显示警告，当前内存中的流程仍可继续。存储器通过串行写入与版本检查，避免旧恢复结果覆盖新凭证。Token 不进入 Auth 返回地址或 Query key。预览刷新受前台/焦点控制，不预留库存，最终资格由服务器判断。
+
+自定义 scheme 需要已安装的构建；尚无 HTTPS Universal Links / App Links 或 Web 自动唤起 App。浏览器预览不证明操作系统已正确投递深链。
+
+### 现场核验
+
+`expo-camera` 仅扫描 QR；只在页面可见、App 前台且正在扫描时挂载。检测到二维码、失焦或进入后台后卸载。同步锁防止重复帧，旧响应不能覆盖新扫描。拒绝权限或没有相机时，提供系统设置提示和手工 Pass ID 回退。
+
+QR 调用 verify-token，手工模式调用既有 Verify API；两者都需要工作人员明确确认 CheckIn，记录 `method=QR` 或 `MANUAL`。服务器重新检查归属与状态，并原子核销；Off-chain Pass 不依赖钱包或 RPC。
+
+### 验证命令与设备清单
+
+```bash
+pnpm --filter mobile lint
+pnpm --filter mobile typecheck
+pnpm --filter mobile test
+pnpm --filter mobile exec expo export --platform ios --clear
+pnpm --filter mobile exec expo export --platform android --clear
+pnpm --filter mobile exec expo install --check
+(cd apps/mobile && pnpm dlx expo-doctor@latest)
+```
+
+纯逻辑测试覆盖设计约束、角色/返回地址、私有缓存、QR/相机、钱包状态，以及邀请校验、恢复、保留期限、存储失败和替换竞争。Metro 将 Valtio 解析到 Native Reown 所用实例，使控制器和订阅者共享同一代理注册表；不是全局 workspace override。
+
+设备验收需分别检查：
+
+- iOS / Android Session 重启恢复、角色导航、键盘、安全区和字号缩放。
+- User 领取 → 外部钱包签名返回 → Mint → QR。
+- Merchant 相机/手工核验/扫描下一张，以及 Admin 提升角色。
+- Mobile QR 被 Web 核销后，回到前台同步状态。
+- 拒绝权限、后台切换、过期、拒签与减少动态效果偏好。
+
+Hermes 导出不能替代安装、相机和其他硬件验收。
+
+### 已记录验收（2026-10-07）
+
+真实本地 Docker PostgreSQL / API 已验证身份、商家创建活动/票种/发布、用户领取、签名钱包绑定、Sepolia 应用 Mint、receipt / owner / hash / 幂等性、QR / 手工核验、重复核销拒绝、状态同步和 Admin 提升。
+
+Token #5 是本地验收 Pass，不是生产种子数据：[公开交易](https://sepolia.etherscan.io/tx/0xf11fef27990f05f97dcafcdeacff72b41310dfb65c816b84ed67ee2f1cf86fe8)。
+
+Expo Web 的真实三角色界面也已验证；明确命名的测试数据保留，未重置已有 Demo 身份。当时 API E2E 为 79 通过 / 1 跳过，Mobile 15 个纯逻辑测试、根质量检查和 Hermes 导出通过。Expo Doctor 为 20/21；重复原生模块仍需 development build 检查，不能为凑满分全局覆盖 React 版本。
+
+### 邀请验收（2026-10-08）
+
+Expo Web + 真实本地 API / DB 已验证商家 Draft、票种、发布、创建/列出邀请，公开查询隐藏邀请制活动，预览限定票种，以及粘贴/fragment/tab 重载、登录/注册返回邀请、不同用户独立领票。
+
+QR 凭证通过 Merchant API 核验并明确确认 QR Check-in；重复扫描返回 `ALREADY_CHECKED_IN`，Mobile 刷新后隐藏 QR。撤销拒绝新预览并清除待领取凭证，保留已领 Pass。三角色登录、重载和退出通过，没有新增链上交易。
+
+Mobile lint/typecheck、25 个纯逻辑测试、根质量检查和 Hermes 导出通过；隔离 PostgreSQL API E2E 串行为 93 通过 / 1 个 opt-in 跳过。此前并行执行受导出/构建负载影响而超时。这些是历史记录，本轮文档修改未重跑业务测试。
+
+相机实拍、外部钱包跳转、触感、键盘、SecureStore 进程重启、系统分享与已安装 scheme 的物理设备验收仍待完成。浏览器、API 和导出证据不能相互替代。
+
+---
+
+<a id="en"></a>
+
+## English
+
 One Expo / React Native app, three server-selected workspaces. The UI uses the
-[Mobile Design Contract](src/design/README.md); Better Auth and the existing API
+[Mobile Design Contract](src/design/README.md#en); Better Auth and the existing API
 remain the identity, authorization and ticketing authorities.
 
 ## Configure and run

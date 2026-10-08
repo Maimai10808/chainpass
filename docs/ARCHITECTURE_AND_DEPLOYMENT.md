@@ -1,304 +1,115 @@
-# ChainPass Architecture & Deployment
+# ChainPass 架构与部署 / Architecture & Deployment
 
-The source-to-production reference for the hackathon submission. Product behavior is described in [README](../README.md); domain, authorization and blockchain internals are in [Technical Details](./TECHNICAL_DETAILS.md). Host-specific operational references remain in [Operations](./OPERATIONS.md).
+[中文](#zh) · [English](#en)
 
-This document separates **implemented automation**, **observed production state**, and **future improvements**. The production audit below was performed on **2026-10-07**. It is a dated snapshot, not a permanent health guarantee. No deployment, secret rotation or resource cleanup was performed while writing these documents.
+<a id="zh"></a>
 
-## 1. Big Picture
+## 中文
+
+这是源码到生产的工程参考；[README](../README.md#zh)介绍产品，[技术细节](./TECHNICAL_DETAILS.md#zh)解释业务，[部署指南](./DEPLOYMENT.md#zh)提供镜像操作，[运维](./OPERATIONS.md#zh)提供日常 Runbook。依据 2026-10-08 仓库实现；本轮未访问或更新服务器。
+
+### 1. 完整架构
 
 ```mermaid
 flowchart TB
-    Dev[Developer: develop then main] --> Git[GitHub repository]
-    Git --> CI[CI: Quality Gate and API E2E]
-    CI --> Gate[Manual main-only Deploy Production]
-    Gate --> Runner[GitHub Runner: linux/amd64 builds]
-    Runner --> Bundle[Docker archive and SHA256SUMS]
-    Bundle --> Host[Production host: verify and docker load]
-    Host --> Backup[Database backup]
-    Backup --> Migration[One-shot Prisma migration]
-    Migration --> Update[Compose update and health checks]
-    Update --> Tag[Persist and verify active IMAGE_TAG]
+    Dev["开发：develop → main"] --> CI["GitHub CI：Quality Gate + API E2E"]
+    CI --> Gate["人工触发：main + DEPLOY"]
+    Gate --> Runner["Runner：linux/amd64 构建"]
+    Runner --> Archive["save / gzip / SHA256SUMS"]
+    Archive --> Transfer["SSH / SCP"]
+    Transfer --> Load["服务器校验 / docker load"]
+    Load --> Backup["备份 → migrate deploy"]
+    Backup --> Update["Compose --no-build 更新"]
+    Update --> Check["健康检查 → 记录 IMAGE_TAG"]
+    subgraph Host["共享教学服务器"]
+        System["System Nginx :80"] --> N["Docker Nginx 127.0.0.1:18081"]
+        N --> W["Web :3000"]
+        N --> A["API :3001"]
+        A --> DB[("PostgreSQL :5432")]
+        M["一次性 migrate"] --> DB
+        Update -.-> A
+        Update -.-> W
+        Update -.-> N
+    end
+    Browser["Web / Mobile"] --> System
+    A --> RPC["Sepolia RPC → 已部署 ChainPass"]
 ```
 
-The shared Huawei Cloud teaching host **does not build project images**. GitHub Actions is the default delivery path; an authorized Mac/CI-built archive is the emergency fallback. Mobile and Solidity deployment are outside this Compose release.
+服务器**不构建项目镜像**。Mobile 分发与 Solidity 部署不在应用 Compose/CD 内。ChainPass 使用 Compose，不使用共享宿主机已有的 Swarm。
 
-### Verified production snapshot
+### 2. 本地开发与 CI
 
-| Item | Observed result |
-| --- | --- |
-| Source | `develop @ d14dccc`; production `main @ f1c35de`; source trees match at audit time |
-| Host | Ubuntu 24.04, `linux/amd64`, shared Huawei Cloud ECS |
-| Active release | `20261007-f1c35de`, consistent with running application images and env tag |
-| Containers | PostgreSQL, API, Web, Docker Nginx all healthy |
-| Public and loopback smoke | Web HTTP 200; API `{"status":"ok","database":"connected"}` |
-| Database | Six migrations finished; existing volume retained |
-| Runtime environment | `/home/chainpass/.env.production`, mode `600` |
-| Backup | Nonempty `pre-20261007-f1c35de.dump`, mode `600` |
-| Shared services | Existing `:8080` and `:10010` returned 200; Swarm remained active |
-| Capacity | Approximately 6.4 GiB free disk; 1.5 GiB available RAM; no swap |
+本地安装、env、PostgreSQL、Prisma、API/Web/Expo 命令见[快速开始](../README.md#zh)。Node 24、pnpm 12.6.0 与 Docker/CI 一致；PostgreSQL 开发端口为 55432，API 默认 3001，Web 默认 3000。
 
-Evidence: [main push CI](https://github.com/Maimai10808/chainpass/actions/runs/37632195065) succeeded. [Production Deploy attempt](https://github.com/Maimai10808/chainpass/actions/runs/37632774513) built and checked the images but was **cancelled during SCP before remote loading/deployment**. The current release was delivered through the documented Mac emergency path, with checksums, backup, migrations, health checks and explicit tag persistence. Its host-local `RELEASE_NOTES.txt` records that distinction. It is not a successful end-to-end GitHub deployment run.
+`.github/workflows/ci.yml` 在 develop/main push、目标为这两者的 PR、手动 dispatch 时运行。两 job 独立、各 30 分钟；同 ref 新 CI 可取消旧运行。
 
-The previous release has a [successful automated run](https://github.com/Maimai10808/chainpass/actions/runs/37453088818). Older `DEPLOYMENT.md` / `OPERATIONS.md` snapshots describe October 6 and an earlier tag/gate mismatch; the current workflow contains both the strict main CI query and independent tag-persistence step. Use the current implementation and dated evidence above when those historical notes conflict.
+| Job          | 真实步骤                                                                                 |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| Quality Gate | frozen install → Prisma generate → pnpm lint → typecheck → test → build                  |
+| API E2E      | 临时 PostgreSQL 17 healthy → install → generate → migrate deploy → Nest/Supertest/Vitest |
 
-The submission documents intentionally omit the real host address, personal SSH configuration and credentials. Authorized operators obtain the public origin/access details from the existing operational configuration; examples below use `<public-origin>` or environment variables.
+根质量命令只检查 Web/API/Mobile/packages；五个实验端使用 opt-in 检查，但安装仍解析共享 lockfile。E2E 在测试进程创建 Nest app（bodyParser:false），不启动独立长期 API。测试 DB 是隔离的，任务结束由 Runner 回收。普通 CI 设置 BLOCKCHAIN_INTEGRATION=false，不需 Sepolia Secret；不跑 Foundry、浏览器硬件或原生真机。
 
-## 2. Development Architecture
+### 3. Production Deploy 门槛与步骤
 
-The local path is: clone → pnpm install → ignored env files → Docker PostgreSQL → existing migrations/client generation → API → Web/Expo. Commands are listed in [Getting Started](../README.md#getting-started), not duplicated here.
+`deploy-production.yml` 仅手工 workflow_dispatch，job 要求 refs/heads/main 且输入精确 DEPLOY。生产 concurrency 串行且不自动取消上一轮，timeout 60 分钟。
 
-- Node 24 and pnpm 12.6.0 match CI and Docker tooling.
-- Workspaces are `apps/*` and `packages/*`; Turbo orchestrates lint/typecheck/tests/builds.
-- Development PostgreSQL 17 binds `55432:5432`; API defaults to `3001`, Web to `3000`.
-- Native Mobile uses a device-reachable API URL. SecureStore remains the Session store.
-- Off-chain claim/entry does not require Anvil or a Sepolia signer. Chain mint requires deliberate server-side configuration.
-- Contract tests use Foundry separately; root `pnpm build` is not a contract or native distribution build.
+main CI gate 同时筛 **branch=main、head_sha=$GITHUB_SHA、event=push、status=success**，不能借用 develop 同 SHA 的成功。当前代码已有独立 **Persist active release tag** step；这是实现事实，不是本轮已运行该 step 的声明。
 
-This submission baseline is the committed Web/API/Mobile system. Additional untracked app directories present during the October 8 continuation are concurrent work, not evidence of an accepted or deployed integration. Workspace/lockfile edits for those apps were preserved and are not part of this documentation change.
-
-Local quality checks corresponding to the existing workflows:
-
-```bash
-pnpm --filter api exec prisma generate
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-```
-
-E2E additionally needs an **isolated test database**, configured before applying migrations and running `pnpm --filter api test:e2e`. Do not point test teardown at a production/developer database you intend to preserve.
-
-## 3. Source-to-Production Pipeline
-
-1. Develop and verify locally on `develop`.
-2. Push authorized commits; CI runs Quality Gate and API E2E.
-3. Merge the intended release into `main`; wait for that exact commit's successful **push** CI.
-4. Run **Deploy Production** manually on `main`, typing `DEPLOY`.
-5. Runner builds/tag-checks all Linux/amd64 images, packages and checksums the release.
-6. SSH/SCP transfers the release; the host verifies checksums before loading.
-7. Back up the running production database before migration.
-8. Use a temporary runtime env copy with the new tag; run the no-build helper.
-9. Wait for PostgreSQL, migration, API, Web and Docker Nginx in order.
-10. Check loopback routes, then the public system-Nginx routes.
-11. Independently persist/read back the active tag, preserving env mode `600`.
-12. Runner performs a final public smoke check.
-
-Normal front/backend updates do not require manual server source edits, builds, SCP, image loading or restarts. Manual actions that remain: approve/trigger release, manage runtime secrets, host Nginx/TLS, restore/rollback decisions and emergency recovery.
-
-## 4. CI Quality Gate
-
-[`ci.yml`](../.github/workflows/ci.yml) runs on pushes to `develop`/`main`, PRs targeting them, and manual dispatch. Both jobs have 30-minute timeouts. Same-ref older CI can be cancelled by a newer run.
-
-**Quality Gate** uses Node 24/pnpm 12.6.0:
+默认日常路径：
 
 ```text
-frozen-lockfile install
-→ Prisma generate
-→ pnpm lint
-→ pnpm typecheck
-→ pnpm test
-→ pnpm build
+develop 开发/验证 → 授权 commit/push → develop CI
+→ 合入 main → 该 main push CI
+→ Actions / Deploy Production / main / DEPLOY
+→ build / transfer / backup / migrate / update / health / tag
 ```
 
-It supplies CI-only database/build values, not production secrets. Root scripts use Turbo and run each workspace's defined tasks; shared packages without a build script do not acquire an invented build step. API unit tests are distinct from API E2E. Foundry, browser wallet/camera and native hardware tests are not part of this job.
+普通更新不需要人工 SSH 改源码、构建、SCP/load 或重启。首次 Secret/SSH、系统 Nginx、TLS、回滚与紧急交付仍由人工管理。
 
-The deployment gate queries successful `ci.yml` workflow runs with **all four filters**: `branch=main`, `head_sha=$GITHUB_SHA`, `event=push`, `status=success`. A develop or PR success cannot satisfy it. This is a workflow-run gate, not a promise that every repository protection rule requires every status before merging.
+### 4. 镜像与配置
 
-## 5. API E2E
+| 镜像                        | 真实打包方式                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| chainpass-api:<tag>         | Node 24 Alpine；Turbo prune、Prisma generate、Nest build、prod dependencies；非 root runner |
+| chainpass-api-migrate:<tag> | API Dockerfile migrate target；Prisma 7.10 CLI + schema/config/migrations，one-shot         |
+| chainpass-web:<tag>         | Node 24 Alpine；pruned workspace build、Next standalone，非 root runner                     |
+| chainpass-nginx:<tag>       | Nginx 1.27 Alpine，仅代理配置                                                               |
+| postgres:17-alpine          | 官方 linux/amd64 runtime                                                                    |
 
-The separate job starts an ephemeral PostgreSQL `17-alpine` service, published to runner port 5432 with `pg_isready` health checks. It installs dependencies, generates Prisma, applies existing migrations using `--config prisma7.config.ts`, then runs the E2E Vitest configuration.
+API/Web build context 为仓库根；生产依赖采用 isolated + Turbo prune，不依赖开发机 hoisted 布局。API 把 schemas/web3 源码放到 node_modules 外，再链接，避免 Node 对 node_modules 内 TS type-strip 的限制。Web runner 使用 apps/web/server.js、standalone/public/static，不运行 next dev。
 
-Tests create Nest test applications using `bodyParser: false` and Supertest; CI does not start a separate long-running API process. Test fixtures are scoped/cleaned by test code, and the runner service is ephemeral at job completion.
+`.dockerignore` 排除真实 env、Git、产物、Mobile、五个实验端、contracts/docs/infra；Docker Nginx 单独使用 infra/nginx context。锁文件/根配置仍可能使缓存失效，不等于实验依赖进入 runtime。
 
-CI explicitly sets `BLOCKCHAIN_INTEGRATION=false`. Mint and check-in E2E use a replaced BlockchainService; ordinary CI needs neither a public RPC nor a Sepolia private key. The opt-in Anvil integration is skipped. The current local acceptance record reports 79 tests passing with one opt-in skip; a successful exact-main CI run was verified for this submission, but its detailed test count was not independently downloaded during this audit.
+Web 的 NEXT_PUBLIC_API_URL/AUTH_URL/APP_URL、CHAIN_ID、CONTRACT_ADDRESS、REOWN_PROJECT_ID 在 **build-time** 注入；修改服务器 env 不会改变旧 bundle。API runtime 才接收 DATABASE_URL、BETTER_AUTH_SECRET、QR_VERIFICATION_SECRET、CHAIN_RPC_URL、DEPLOYER_PRIVATE_KEY。Compose 从 PUBLIC_URL 派生 Auth/WEB_ORIGIN。没有 Secret build ARG。
 
-## 6. Docker Architecture
+### 5. Tag、归档与服务器目录
 
-| Image | Purpose | Build and runtime | Port |
-| --- | --- | --- | --- |
-| `chainpass-api:<tag>` | NestJS business/Auth runtime | Node 24 Alpine; prune/install/generate/build/prod dependency deployment; non-root runner | 3001, internal |
-| `chainpass-api-migrate:<tag>` | One-shot schema migration | Node 24 Alpine; Prisma 7.10.0 CLI, schema/config/migrations; non-root `prisma` user | None |
-| `chainpass-web:<tag>` | Next.js product | Node 24 Alpine; pruned workspace build; standalone output; non-root runner | 3000, internal |
-| `chainpass-nginx:<tag>` | Application reverse proxy | Nginx 1.27 Alpine; config copied into image | Container 80; host loopback 18081 |
-| `postgres:17-alpine` | Persistent database | Official runtime image, not built by the project | 5432, internal |
-
-Sources: [API Dockerfile](../apps/api/Dockerfile), [Web Dockerfile](../apps/web/Dockerfile), [Nginx Dockerfile](../infra/nginx/Dockerfile), [Compose](../infra/docker-compose.prod.yml).
-
-The root is the API/Web build context because both use workspace dependencies. `.dockerignore` excludes real env files, Git/history, dependencies/caches, Mobile, contracts and docs from those contexts. Nginx has its own small context.
-
-API packaging copies `schemas` and `web3` source outside `node_modules` and points package symlinks there: Node cannot type-strip TypeScript from inside the deployed `node_modules` tree. The Web runner copies standalone output, public assets and `.next/static`, then runs `apps/web/server.js`. Neither runs a dev server.
-
-The migration image is a distinct target containing the CLI and migration assets; the API runner need not carry a migration toolchain. Its command is:
-
-```text
-prisma migrate deploy --config prisma7.config.ts
-```
-
-### Build-time vs runtime configuration
-
-Web images receive `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_AUTH_URL`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_CHAIN_ID`, `NEXT_PUBLIC_CHAINPASS_CONTRACT_ADDRESS` and optional Reown ID as build arguments. Changing only server env cannot change an old browser bundle.
-
-API runtime alone receives `DATABASE_URL`, `BETTER_AUTH_SECRET`, `QR_VERIFICATION_SECRET`, `CHAIN_RPC_URL` and `DEPLOYER_PRIVATE_KEY`. The signer is never a Docker ARG, Web env or image layer. Compose derives API Auth URL/trusted Web origin from `PUBLIC_URL`. The template's example domain is a placeholder, not current HTTPS infrastructure.
-
-## 7. Image Tag Strategy
-
-Workflow tag format is **UTC `YYYYMMDD-<first seven characters of GITHUB_SHA>`**. For example, main `f1c35de…` maps to `20261007-f1c35de`, release directory and the four app/migration image tags.
-
-The authoritative deployed state requires three matching pieces:
-
-```text
-main commit → release files / tagged images → running containers
-                                           ↘ persisted IMAGE_TAG
-```
-
-Only image loading is not a production switch. A successful deploy helper does not itself persist the tag. The independent **Persist active release tag** workflow step changes only that public env field, enforces `600`, and reads it back. Final checks must compare env and running images.
-
-Same-day retries of the same commit produce the same tag and paths. Rebuilt mutable base images can change bits without changing the tag; archives/checksums identify the actual payload. There is no run-unique immutable release identifier or digest pinning policy. The PostgreSQL runtime tag is not release-specific.
-
-## 8. Artifact Transfer
-
-The workflow saves five images, gzips them, and packages:
-
-```text
-chainpass-images-<IMAGE_TAG>.tar.gz
-docker-compose.prod.yml
-teaching-server.conf
-deploy.sh
-SHA256SUMS
-```
-
-`SHA256SUMS` covers the archive and the three configuration/script files. Runtime env, SSH keys and database contents are not packaged. SCP sends the files into the tag-specific release directory; the host runs `sha256sum --check SHA256SUMS` before `gzip -dc ... | docker load`.
-
-The latest complete archive was about **818 MiB**. Full archives repeat unchanged layers. GitHub-hosted Runner → China host SCP can be the slowest step: the latest attempt transferred roughly 54 MiB before cancellation because its rate could not finish within the 60-minute workflow window. A quiet SCP step for several minutes alone is not evidence of a hung deployment.
-
-There is currently no registry push/pull, resumable-transfer protocol, automatic incomplete-release cleanup or detailed SCP progress reporting in the workflow. Recovery must inspect current state first; see section 18.
-
-## 9. Production Server Layout
+tag = UTC **YYYYMMDD-<Git SHA 前七位>**；四张应用/migration image、release 目录和 env tag 对应。PostgreSQL 不使用 release-specific tag。
 
 ```text
 /home/chainpass/
-├── .env.production                      # Runtime secrets; mode 600; outside release
-├── backups/
-│   └── pre-<IMAGE_TAG>.dump              # Sensitive PostgreSQL custom-format backup
-└── releases/
-    └── <IMAGE_TAG>/
-        ├── chainpass-images-<IMAGE_TAG>.tar.gz
-        ├── SHA256SUMS
-        ├── docker-compose.prod.yml
-        ├── teaching-server.conf
-        └── deploy.sh
+├── .env.production                 # Secret，mode 600
+├── backups/pre-<IMAGE_TAG>.dump     # 敏感 DB 备份
+└── releases/<IMAGE_TAG>/
+    ├── chainpass-images-<IMAGE_TAG>.tar.gz
+    ├── SHA256SUMS
+    ├── docker-compose.prod.yml
+    ├── teaching-server.conf
+    └── deploy.sh
 ```
 
-The latest emergency release also contains public `RELEASE_NOTES.txt` and preserved transport/partial artifacts. Those are diagnostic leftovers, not required application resources, and were not deleted in this audit.
+Runner 按顺序构建 API/migrate/Web/Nginx、拉 Postgres、检查全部 linux/amd64，再 docker save | gzip。SHA256SUMS 覆盖归档和三个配套文件；SCP 后服务器校验再 load。Secret、DB、SSH key 不入归档。没有 registry 或断点续传机制。
 
-The host does not need a Git checkout, pnpm, Node build tools or Mobile artifacts. Retain historical release files/images needed for a deliberate rollback. The release directory is not a backup of PostgreSQL.
+同一天重跑同一 SHA 复用 tag，可能覆盖 release/备份；基础镜像可变，tag 不是内容 digest。跨境 SCP、大完整归档、重复传不变层是现实限制；几分钟静默不等于失活，不能直接重跑全流程。
 
-## 10. Database
+### 6. 数据库、备份与启动
 
-Production PostgreSQL 17 belongs to Compose project **`chainpass`**, volume **`chainpass_postgres_data`**, mounted at `/var/lib/postgresql/data`. It has no host-port mapping and is only on the internal backend network.
+生产 project 必须显式 **chainpass**；Compose/helper 默认 chainpass-prod，不能误创建第二个 volume。生产卷 chainpass_postgres_data 挂载 /var/lib/postgresql/data；无 host port，backend 为 internal，API 的 edge network 可访问外部 RPC。
 
-Use the same project name on every update. The file/helper defaults are `chainpass-prod`; production calls override them explicitly to avoid creating a second volume/stack.
+Workflow 先按 project/service label 找运行的 PostgreSQL，执行 pg_dump -Fc 到 pre-<tag>.dump 并检查非空。未找到运行 DB 会跳过备份：只适合明确首装，不能把故障数据库当空环境。备份权限依赖 umask，workflow 未显式 chmod；同 tag 可覆盖备份。无异机备份、保留策略或自动恢复演练。**Volume 不是 backup。**
 
-Credentials come from server env. The API/migration datasource uses service name `postgres`, not host `localhost`. Normal updates keep the volume and apply forward migrations; they do not initialize an empty replacement or reset tables. A Docker volume is persistence, **not a backup**.
-
-## 11. Database Backup Before Deploy
-
-The workflow locates the running `chainpass` PostgreSQL container by Compose project/service labels. Before invoking migration it runs container-local `pg_dump -Fc`, saves `backups/pre-<IMAGE_TAG>.dump`, and checks command success/file nonzero size.
-
-If no running database container is found, the workflow skips backup, supporting first installation. It does not determine whether an inaccessible existing volume contains important data. Operators must stop/review an unexpected missing database rather than treat this skip as a recovery guarantee.
-
-Backup permission hardening is not explicit in the workflow: new files inherit the remote shell's umask. The latest emergency backup was set to `600`; protect all backups and their parent directory separately. Same-tag reruns overwrite the same backup path unless an operator preserves it first. No off-host backup, scheduled retention, full restore drill or automated restore validation is implemented.
-
-For an **authorized manual backup** on the host, without printing credentials:
-
-```bash
-umask 077
-backup="/home/chainpass/backups/manual-$(date -u +%Y%m%dT%H%M%SZ).dump"
-docker exec chainpass-postgres-1 \
-  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$backup"
-test -s "$backup"
-chmod 600 "$backup"
-```
-
-Backups contain user/session data and are sensitive even though they do not contain the API issuer env. Never add them to release packages or Git. Verify restore on an isolated target before relying on a backup for recovery.
-
-## 12. Database Migration
-
-Existing schema changes originate in development: edit schema → generate/review migration → commit with application changes → CI test → main → release. Do not generate migrations on the production host.
-
-Compose declares migration depends on healthy PostgreSQL, API on migration completion and healthy PostgreSQL. The helper explicitly runs a one-shot migration after PostgreSQL health, then starts API with `--no-deps`, because the migration has already run and its `--rm` container is gone.
-
-`prisma migrate deploy` applies pending committed migrations; an already-current database is a successful no-op. Nonzero migration exit stops the helper/workflow before application updates. Successfully committed DDL is not rolled back automatically when a later step fails.
-
-Never use production `migrate dev`, reset, or `down -v`. A failed migration needs diagnosis of Prisma migration state and the specific DDL/data issue, not a blanket retry or database recreation.
-
-## 13. Runtime Architecture
-
-```text
-Internet :80 → System Nginx
-                    ↓
-             127.0.0.1:18081 → Docker Nginx
-                                    ├── Web :3000
-                                    └── API :3001
-                                           ├── PostgreSQL :5432
-                                           └── Sepolia RPC → ChainPass contract
-```
-
-- `chainpass_edge`: Nginx/Web/API; API has external RPC connectivity through this network.
-- `chainpass_backend`: API/migration/PostgreSQL, marked `internal: true`.
-- Only Docker Nginx publishes a port, loopback-only behind the host gateway.
-- API/Web/PostgreSQL have no public bindings; `expose` is not a host-port mapping.
-- Long-running services use `restart: unless-stopped`; migration uses `restart: "no"`.
-- Existing host Swarm is unrelated: ChainPass uses Compose, not a Swarm stack.
-
-The public service currently uses HTTP only. No domain/certificate/TLS deployment is claimed. SSH access is operational access, not another application entry point.
-
-## 14. Nginx
-
-[`teaching-server.conf`](../infra/nginx/teaching-server.conf) describes the separately installed host site: port 80 → `127.0.0.1:18081`, Host/real-IP/forwarded headers and 180-second read timeout. Existing teaching sites are not replaced. Installing/updating this site requires separate review, `nginx -t`, then reload, not a routine application release.
-
-[`default.conf`](../infra/nginx/default.conf) is baked into the Docker Nginx image:
-
-| Public path | Upstream behavior |
-| --- | --- |
-| `/healthz` | Nginx-local 200; not application/DB health |
-| `/api/auth/*` | Preserves full path to Better Auth |
-| `/api/*` | Strips `/api/` and proxies to NestJS business routes |
-| `/` | Next.js; includes Next static asset requests |
-| `/api`, `/api/auth` | 308 redirects to slash-ending paths |
-
-Both proxy layers use HTTP/1.1, forwarding headers, 2 MiB body limit and 180-second read timeout for synchronous mint receipt waits. No WebSocket/SSE requirement is implemented. Docker Nginx is force-recreated after application updates so its upstream resolution follows replaced containers.
-
-TLS is future work. Both layers currently derive forwarded protocol from their local scheme; terminating HTTPS at the outer layer requires auditing preservation into the inner layer, Better Auth cookies/origins and rebuilt public URLs. Simply adding a certificate or changing env is not full HTTPS acceptance.
-
-## 15. Health Checks
-
-| Check | What it proves | What it does not prove |
-| --- | --- | --- |
-| PostgreSQL `pg_isready` | Server accepts connections | Correct migration/data/business state |
-| API `/health` | Request succeeds and SQL `SELECT 1` works | Signer balance, RPC/contract availability or auth flow |
-| Web `/` | Next server responds successfully | Browser hydration/session/mint behavior |
-| Nginx `/healthz` | Nginx local config serves a route | Upstreams healthy |
-| Gateway `/api/health`, `/` | Routing plus API DB and Web reachability | Full business/device acceptance |
-
-Container health commands use local Node fetch for API/Web and wget for Nginx. The helper waits for services and checks gateway routes with `curl --fail`; workflow additionally checks the public origin remotely and from Runner (five retries, three-second delays). Curl's error check is not a business response validator and does not reject every redirect; inspect expected response/status/body as part of acceptance.
-
-Read-only operator checks, using an already authorized host session:
-
-```bash
-docker ps --filter label=com.docker.compose.project=chainpass \
-  --format '{{.Names}} {{.Image}} {{.Status}} {{.Ports}}'
-grep '^IMAGE_TAG=' /home/chainpass/.env.production
-curl --fail --silent --show-error http://127.0.0.1:18081/api/health
-curl --fail --silent --show-error --output /dev/null \
-  --write-out '%{http_code}\n' http://127.0.0.1:18081/
-```
-
-From a client set `PUBLIC_URL` to the authorized public origin, then test `${PUBLIC_URL%/}/api/health` and `/`. Never print the whole production env or a Compose config that interpolates secrets; use `config --quiet`.
-
-## 16. Production Switch
-
-The helper validates config and **all required loaded images** before startup. Its actual sequence is:
+在临时 mode-600 env 副本只替换 IMAGE_TAG；helper config --quiet、检查所有镜像已 load，执行：
 
 ```bash
 compose up -d --no-build --wait postgres
@@ -308,193 +119,235 @@ compose up -d --no-build --no-deps --wait web
 compose up -d --no-build --no-deps --force-recreate --wait nginx
 ```
 
-The workflow supplies a temporary mode-600 copy of production env with the new IMAGE_TAG and deletes that copy on exit. Persistent secrets are not rewritten by the helper. Production uses `CHAINPASS_COMPOSE_PROJECT=chainpass`, the release Compose path, correct env file, and loopback smoke URL.
+migration 运行 prisma migrate deploy --config prisma7.config.ts；失败即停止，不能用 migrate dev/reset/down -v。helper 不负责备份、系统 Nginx、永久 tag、回滚或清理。Nginx 重建以重新解析被替换的 upstream。
 
-Service replacement updates the single live stack; there is no blue/green environment, atomic traffic switch or guaranteed zero downtime. API may be new while Web/Nginx are still old. Runtime availability precedes the independent env tag persistence; final tag and container inspection resolves that distinction.
+### 7. 路由与健康检查
 
-## 17. Rollback
+System Nginx 是公网入口；Docker Nginx 的唯一 host mapping 是 loopback :18081。Web/API/DB 不向宿主机暴露 3000/3001/5432。
 
-**Automatic:** shell failure stops remaining steps. No automated image/DB rollback exists. Before service update, build/transfer/checksum/backup failures normally leave the prior runtime untouched. Migration failure may have altered DB state; API/Web/startup/smoke failures can leave a partially updated stack.
+| 路径/检查          | 含义                                              |
+| ------------------ | ------------------------------------------------- |
+| /healthz           | Docker Nginx 自身返回 200，不证明 upstream        |
+| /api/auth/*        | 保留完整路径给 Better Auth                        |
+| /api/*             | 去掉 /api/ 给 NestJS 普通业务路由                 |
+| /                  | Next.js（包括静态资源）                           |
+| API /health        | SELECT 1，返回 status:ok/database:connected       |
+| pg_isready / Web / | DB 接受连接 / Web server 响应，不等于完整业务验收 |
 
-**Manual application rollback, only after authorization:**
+两层 HTTP/1.1、Host/real-IP/forwarded headers、2MiB body limit、180 秒 read timeout 支持同步 Mint 等待。无应用 WebSocket/SSE。常驻容器 restart unless-stopped；migration restart no。
 
-1. Identify a known-good historical release and its corresponding images/archive.
-2. Review current migration state and compatibility with the old application; old code may not work with a forward-migrated schema.
-3. If images are missing, verify that old release's checksum and load its archive; do not rebuild on the server.
-4. Override IMAGE_TAG explicitly and use that release's Compose with the same project/volume. Replace API → Web → force-recreate Nginx with `--no-build --no-deps --wait`; do not blindly run an old migration image as a rollback.
-5. Verify container/public/business health and existing teaching services.
-6. Persist only the recovered public tag and retain mode `600`; record the rollback.
+helper 检查 loopback API/Web，workflow 远端及 Runner 检查公网，最后独立持久化 tag/readback（600）并再检查公网。最终必须对齐**实际运行镜像、release、env IMAGE_TAG**。load 本身不代表上线，健康不代表 Wallet/Mint/QR 全验收。
 
-Example application restart fragment, executed on the host only after steps 1–3:
+HTTP 无 TLS 是已记录教学架构；HTTPS 需审核两层 forwarded-proto、Cookie/Origin、最终 build URL 和相机，不能只加证书就宣称完成。
+
+### 8. 回滚与故障恢复
+
+没有自动 rollback 或 blue/green；顺序替换可能短时混合版本/停机。失败停止后续步骤：
+构建/传输/checksum/备份失败通常未动应用；migration 后可能已改 DB；启动/health/tag 失败可能新服务已经运行。
+
+回滚必须人工确认旧镜像/目录、当前 schema 兼容性；只以旧 tag/no-build 替换 API/Web/Nginx，**不盲目执行旧 migration helper**。应用回滚不反向 Prisma DDL；优先 forward repair，DB restore 另需审核停机/丢数据风险。命令见[运维](./OPERATIONS.md#zh)。
+
+```mermaid
+sequenceDiagram
+    actor Dev as Developer
+    participant GH as GitHub
+    participant R as Runner
+    participant H as Host
+    participant D as Docker
+    participant DB as PostgreSQL
+    Dev->>GH: develop → main / successful push CI
+    Dev->>GH: main dispatch with DEPLOY
+    GH->>R: gate / amd64 build / archive / checksum
+    R->>H: SSH / SCP
+    H->>H: verify checksum / env mode
+    H->>D: load images
+    H->>DB: backup before migration if DB running
+    H->>D: postgres healthy / one-shot migration
+    D->>DB: migrate deploy
+    H->>D: API → Web → recreate Nginx
+    H->>D: loopback / public health
+    R->>H: persist IMAGE_TAG / read back
+    R->>D: final public health
+```
+
+| 故障                            | 处理起点                                                               |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| CI/gate/build/architecture 失败 | 修正确切 SHA 的源码/测试；服务器不构建                                 |
+| SCP 慢/中断                     | 查 step、进程、文件大小；部分归档不 load，不开启冲突传输               |
+| checksum/缺镜像                 | 完整交付后复核/load，不猜 tag                                          |
+| backup/migration 失败           | 停止；查 DB/磁盘/权限/migration 状态，保留数据                         |
+| service/health 失败             | 查 ChainPass scoped logs、loopback、系统入口、访问规则                 |
+| tag 漂移                        | 先查运行镜像；授权后仅修公开 tag，不重跑整个部署                       |
+| RPC 不可达                      | API 内脱敏只读 chain/code/owner 检查；授权换 runtime RPC，不重部署合约 |
+
+若已有完整归档或 loaded image，从失败层继续；不要重复构建 API/重建 PostgreSQL。取消 Actions 后经紧急路径完成上线，不能把取消 run 改称成功。
+
+### 9. 历史生产证据与运维边界
+
+保留的 **2026-10-07** 审计记录：20261007-f1c35de、四容器 healthy、loopback/公网 Web HTTP 200、API DB connected、当时的六个 migrations、env / backup 权限 600、其他服务 8080/10010 正常、Swarm active。该记录不证明后来新增邀请 migration 已在生产应用。
+
+[main CI](https://github.com/Maimai10808/chainpass/actions/runs/37632195065)成功；[该次 Deploy](https://github.com/Maimai10808/chainpass/actions/runs/37632774513)在 SCP 阶段取消，最终通过 Mac 应急路径交付；此前[自动发布](https://github.com/Maimai10808/chainpass/actions/runs/37453088818)有成功记录。本轮未再查 GitHub/服务器，因此不声称当前 live tag/CI 状态。
+
+现有观察工具是 Actions、docker ps/logs/stats、nginx logs、health、free/df/system df。无 Prometheus/Grafana/自动告警。生产 SSH/Secret、system site、TLS、issuer 资金/托管、保留/回滚、Mobile 分发是人工边界。
+
+共享主机禁止全局 prune、Swarm leave、重启 Docker、down -v、生产 migrate dev、打印 env、占用 8080/10010 或修改其他项目。只操作经确认的 chainpass 资源。
+
+### 10. 已知限制与未来建议
+
+当前：单机共享资源、HTTP、大归档/SCP、不支持自动恢复/回滚、同机备份、手工 Secret、缺完整硬件验收，health 不测试链上业务。历史容量是快照，不能当今天可用空间。
+
+未来可评估 registry 增量 pull、不可变 digest、异机备份/恢复演练、expand/contract migration、TLS 与低停机发布、按需求轻量监控、issuer 托管与 receipt worker。**这些都未实现**，不能混入当前架构或未经授权部署。
+
+---
+
+<a id="en"></a>
+
+## English
+
+This source-to-production reference links to [product](../README.md#en), [technical internals](./TECHNICAL_DETAILS.md#en), [image delivery](./DEPLOYMENT.md#en) and [operations](./OPERATIONS.md#en). It reflects source on 2026-10-08; no host visit/update occurred in this edit.
+
+### 1. Architecture
+
+```mermaid
+flowchart TB
+    Dev["develop → main"] --> CI["Quality Gate + API E2E"]
+    CI --> Gate["Manual main / DEPLOY"]
+    Gate --> R["Runner amd64 build / save / gzip / SHA256"]
+    R --> T["SSH / SCP"]
+    T --> H["Host verify / load / backup / migrate"]
+    H --> U["Compose no-build / health / persist tag"]
+    subgraph Host["Shared teaching host"]
+        S["System Nginx :80"] --> N["Docker Nginx loopback :18081"]
+        N --> W["Web :3000"]
+        N --> A["API :3001"]
+        A --> P[("PostgreSQL :5432")]
+        M["One-shot migrate"] --> P
+        U -.-> N
+        U -.-> W
+        U -.-> A
+    end
+    Client["Web / Mobile"] --> S
+    A --> Chain["Sepolia RPC → existing ChainPass"]
+```
+
+The host never builds project images. Compose deploys neither Mobile nor Solidity; the host's unrelated Swarm is not ChainPass infrastructure.
+
+### 2. Development and CI
+
+Use [quick start](../README.md#en). Node 24/pnpm12.6.0 match Docker/CI; development Postgres binds55432, API3001, Web3000.
+
+ci.yml triggers on develop/main pushes, PRs targeting them and dispatch. Two independent 30-minute jobs: Quality Gate (frozen install, Prisma generate, lint/typecheck/test/build); API E2E (ephemeral Postgres17 health, install/generate/migrate deploy, Nest/Supertest/Vitest). Same-ref newer runs can cancel older CI.
+
+Root tasks filter core Web/API/Mobile/packages; experimental checks are opt-in, though shared installation still resolves them. E2E creates Nest apps with bodyParser:false inside tests and uses an isolated DB. BLOCKCHAIN_INTEGRATION=false means no Sepolia secret; Foundry, hardware and production transactions are outside CI.
+
+### 3. Production gate and release flow
+
+deploy-production.yml is dispatch-only, requiring refs/heads/main and exact DEPLOY. Production runs serialize without cancellation; timeout60minutes. The gate filters branch=main, head_sha=$GITHUB_SHA, event=push, status=success. Develop CI cannot substitute.
+
+Current source has an independent Persist active release tag step; source inspection is not proof it ran in this edit. Standard flow: develop/local checks/authorized push → develop CI → reviewed main → exact main push CI → manual dispatch → build/transfer/backup/migrate/update/health/tag.
+
+Ordinary updates require no manual SSH source edits, builds, SCP/load or restarts. Initial secrets/SSH, host Nginx, TLS, rollback and emergency delivery remain manual.
+
+### 4. Images and configuration
+
+API uses Node 24Alpine, Turbo prune, Prisma/Nest build and prod deployment, with non-root runner. Migration is a distinct Prisma 7.10 CLI/schema/config/migrations target. Web uses pruned Next standalone/public/static and non-root server.js. Nginx1.27Alpine supplies routing; postgres17-alpine is official runtime. All five images must be linux/amd64.
+
+Root context serves API/Web; isolated/pruned installation avoids development hoisting. API schemas/web3 sources live outside node_modules with symlinks for Node TS stripping. dockerignore excludes secrets, Git/output, Mobile, experimental apps, contracts/docs/infra; Nginx has a separate context. Shared lock/config can invalidate cache without adding experimental runtime dependencies.
+
+Web NEXT_PUBLIC API/Auth/App URLs, chain/contract and Reown ID are build-time. Server env changes cannot alter old bundles. DATABASE_URL, Auth/QR secrets, RPC and issuer key are API-runtime-only; PUBLIC_URL derives API Auth/WEB_ORIGIN. No secret ARG exists.
+
+### 5. Tags and artifacts
+
+Tag = UTC YYYYMMDD-seven-character-SHA; application/migration images, release directory and env tag correspond. Postgres uses its fixed runtime tag.
+
+```text
+/home/chainpass/
+├── .env.production                 # runtime secrets, 600
+├── backups/pre-<IMAGE_TAG>.dump     # sensitive DB dump
+└── releases/<IMAGE_TAG>/
+    ├── chainpass-images-<IMAGE_TAG>.tar.gz
+    ├── SHA256SUMS
+    ├── docker-compose.prod.yml
+    ├── teaching-server.conf
+    └── deploy.sh
+```
+
+Runner sequentially builds API/migration/Web/Nginx, pulls Postgres, inspects platform, saves/gzips and checksums the archive plus three companion files. Host verifies before load. Env, DB and SSH keys are never packaged. No registry/resumable transfer exists.
+
+Same-day same-SHA retries reuse paths and may overwrite backup/artifacts; mutable base tags mean release tags are not content digests. Cross-border full-archive SCP is a real bottleneck; minutes without logs do not justify starting over.
+
+### 6. Database and startup
+
+Always use project chainpass on production; file/helper defaults chainpass-prod, which would create different resources. chainpass_postgres_data persists at /var/lib/postgresql/data, without host port. backend is internal; edge gives API external RPC connectivity.
+
+Before migration, workflow label-selects a running DB, pg_dump -Fc to pre-tag.dump and checks nonempty. A missing running DB skips backup, suitable only for known first installation—not recovery from an outage. Permission inherits umask; workflow does not chmod backups. Same-tag runs may overwrite them. Off-host backup, retention and restore drills are absent. A volume is not a backup.
+
+A temporary mode600 env changes only IMAGE_TAG. Helper config --quiet/image preflight precede:
 
 ```bash
-export IMAGE_TAG="<known-good-tag>"
-release_dir="/home/chainpass/releases/${IMAGE_TAG}"
-compose() {
-  docker compose -p chainpass \
-    --env-file /home/chainpass/.env.production \
-    -f "${release_dir}/docker-compose.prod.yml" "$@"
-}
-compose config --quiet
+compose up -d --no-build --wait postgres
+compose run --rm --no-deps --pull never migrate
 compose up -d --no-build --no-deps --wait api
 compose up -d --no-build --no-deps --wait web
 compose up -d --no-build --no-deps --force-recreate --wait nginx
 ```
 
-This fragment does not persist the tag or restore DB. Application rollback is **not database rollback**. Prefer a reviewed forward repair migration. Database restore requires an explicit downtime/data-loss decision, a verified backup, and a separate audited procedure. No automatic reverse Prisma migration is supplied.
+Migration runs prisma migrate deploy --config prisma7.config.ts. Failure stops; never use production migrate dev/reset/down -v. Helper does not back up, persist tag, manage system Nginx, roll back or clean resources. Nginx recreation resolves current upstreams.
 
-## 18. Release Directory & Deployment Recovery Principles
+### 7. Routing and health
 
-First determine the failed layer: build, transfer, load, backup, migration, service replacement, smoke, or tag persistence. Avoid restarting the entire pipeline because a transfer is quiet.
+System Nginx owns public80; Docker Nginx binds loopback :18081 only. Web/API/DB do not publish host3000/3001/5432.
 
-- Inspect Actions job/step and remote process/file sizes without exposing secrets. A growing archive and live SCP are progress, not a dead build.
-- A partial `.tar.gz` is not loadable; do not deploy until its final checksum and companion configs match. Current SCP has no built-in resume guarantee.
-- Stop conflicting writers before replacing a partial archive. If delivery changes to the authorized emergency path, use the exact reviewed source/platform/public build config and its own complete checksum set; do not mix files from different builds.
-- If a complete verified archive/images already exist, continue from loading/preflight or the failed service step rather than rebuilding API/PostgreSQL or transferring again.
-- Prisma handles already-applied migrations as a no-op, but failures/partial DDL must be inspected before retry. Backups can be overwritten by same-tag retries.
-- If containers are healthy but tag persistence failed, verify images/health first, then repair only the public tag field. Do not deploy again just to repair metadata.
-- Keep evidence of an emergency delivery. A cancelled Actions run cannot be relabeled successful because another path later completed.
+healthz checks Nginx itself; /api/auth/* preserves Better Auth prefix; ordinary /api/* strips it for Nest; / goes to Next. API health executes SELECT1 and returns status:ok/database:connected. pg_isready/HTTP health prove availability, not migrations, signer/RPC or full business acceptance.
 
-This is an operational recovery discipline, not a implemented resumable-deploy engine. The latest emergency path was: Mac Linux/amd64 images → isolated local production Compose smoke → save/gzip/SHA256 → SCP → remote verify/load → backup → no-build helper → public health → tag/readback.
+Both layers forward Host/IP/protocol, use HTTP1.1, 2MiB bodies and180-second read timeout for mint. No app WebSocket/SSE. Long-running services restart unless-stopped; migrate does not.
 
-## 19. Observability and Shared-Host Safety
+Helper checks loopback; workflow checks public remotely, independently persists/readbacks tag with600, then Runner retries public smoke. Running images/release/env IMAGE_TAG must match. Load alone is not release success. HTTP/TLS is a separate acceptance boundary; forwarded-proto/cookies/origins/build URLs/camera need review when adding HTTPS.
 
-Current tools: Actions jobs/logs, `docker ps`, service-scoped `docker logs`/Compose logs, API/Web/Nginx health, Nginx logs, `docker stats --no-stream`, `free -h`, `df -h`, and `docker system df`. No Prometheus, Grafana, tracing platform or automated paging is installed by this project.
+### 8. Failure, switch and rollback
 
-For logs use the active release Compose and project `chainpass`; filter/redact before sharing, because application/auth logs can contain sensitive information. For example:
+No automated rollback/blue-green exists. Sequential replacement may cause mixed versions/downtime. Build/transfer/checksum/backup failures usually precede application mutation; migrations may persist DDL; startup/health/tag failures may occur after new services run.
 
-```bash
-active_tag="$(sed -n 's/^IMAGE_TAG=//p' /home/chainpass/.env.production | tail -n 1)"
-docker compose -p chainpass --env-file /home/chainpass/.env.production \
-  -f "/home/chainpass/releases/${active_tag}/docker-compose.prod.yml" \
-  logs --tail 100 api
-```
-
-Compare the persisted tag with actual containers first. Starting/stopping one service is a write operation and is not implied by permission to inspect logs.
-
-### Danger / Do Not
-
-Only operate on explicitly identified ChainPass resources. Preserve pawlice-report, flow-lab, other project directories/configs and existing Swarm.
-
-- No server project builds, global Docker prune, volume/network prune, Swarm leave, or Docker daemon stop/restart.
-- No `down -v`, database reset, removal of `chainpass_postgres_data`, or production `prisma migrate dev`.
-- No printing/copying production env, cookies, private keys, passwords or authenticated RPC URLs into tickets/docs/Git.
-- Do not occupy existing teaching ports `8080` / `10010` or publish `18081`, `3000`, `3001`, `5432` externally.
-- Do not replace other Nginx sites or clean their project resources to free RAM/disk.
-- Do not remove old release/image/backup files without explicit retention/rollback review and cleanup authorization.
-
-## 20. Current Production Architecture Diagram
-
-```mermaid
-flowchart TB
-    Git[GitHub main] --> Q[Quality Gate]
-    Git --> E[API E2E with ephemeral PostgreSQL]
-    Q --> D[Manual Deploy Production gate]
-    E --> D
-    D --> R[Runner: amd64 build, save, gzip, SHA256]
-    R --> T[SSH/SCP release]
-    T --> L[Host: checksum and docker load]
-    L --> B[Backup then one-shot migration]
-    B --> C[Compose no-build update]
-    subgraph SharedHost[Shared teaching host]
-        S[System Nginx :80] --> N[Docker Nginx loopback :18081]
-        N --> W[Web :3000]
-        N --> A[API :3001]
-        A --> P[(PostgreSQL :5432, persistent volume)]
-        M[Migration image] --> P
-        C -. Updates .-> N
-        C -. Updates .-> W
-        C -. Updates .-> A
-    end
-    Browser[Browser or Mobile] --> S
-    A --> RPC[Sepolia RPC]
-    RPC --> SC[Existing ChainPass contract]
-```
-
-`edge` connects Nginx/Web/API; only API/migrate/PostgreSQL join the internal `backend`. The diagram shows application deployment, not a Swarm/contract deployment or Mobile distribution pipeline.
-
-## 21. Full Deployment Sequence Diagram
+Manual rollback verifies old images/release and current schema compatibility, then replaces only API/Web/Nginx with old tag/no-build. Do not blindly rerun an old migration helper. Application rollback does not reverse DDL; reviewed forward repair or separately authorized restore is required. See [runbook](./OPERATIONS.md#en).
 
 ```mermaid
 sequenceDiagram
-    actor Developer
-    participant GitHub
-    participant CI as CI Runner
-    participant Host as Production Server
-    participant Docker
-    participant DB as Database
-    participant App as Application
-    Developer->>GitHub: Push develop, merge reviewed release to main
-    GitHub->>CI: Quality Gate and isolated API E2E
-    CI-->>GitHub: Exact main push CI success
-    Developer->>GitHub: Dispatch main with DEPLOY
-    GitHub->>CI: Verify main/SHA/push/success gate
-    CI->>CI: Build amd64 images, verify architecture, save/gzip/checksum
-    CI->>Host: SCP archive and release configs
-    Host->>Host: Verify SHA256 and runtime env mode
-    Host->>Docker: Load verified images
-    Host->>DB: pg_dump before migrations, if running DB exists
-    DB-->>Host: Backup succeeds and is nonempty
-    Host->>Docker: Ensure PostgreSQL healthy
-    Host->>Docker: Run migration image once
-    Docker->>DB: prisma migrate deploy
-    DB-->>Docker: Migration success
-    Host->>Docker: Update API, then Web, then recreate Docker Nginx
-    Docker->>App: Start production services and wait for health
-    App->>DB: Health SQL SELECT 1
-    Host->>App: Loopback then public health checks
-    App-->>Host: API DB connected, Web successful
-    CI->>Host: Independent persist/readback of active IMAGE_TAG
-    CI->>App: Final public smoke with retries
-    CI-->>GitHub: Deployment result
+    actor Dev
+    participant GH as GitHub
+    participant R as Runner
+    participant H as Host
+    participant D as Docker
+    participant DB
+    Dev->>GH: develop/main and successful main push CI
+    Dev->>GH: dispatch main / DEPLOY
+    GH->>R: gate/build/architecture/archive/checksum
+    R->>H: SSH/SCP
+    H->>H: verify artifact/env mode
+    H->>D: load
+    H->>DB: backup if running DB
+    H->>D: Postgres healthy / migrate
+    D->>DB: migrate deploy
+    H->>D: API/Web/Nginx update and health
+    R->>H: persist/readback tag
+    R->>D: final public smoke
 ```
 
-The sequence is the intended automated success path. The latest cancelled SCP run did not reach its remote steps; the current release completed via emergency delivery. Failure stops the sequence, not an automatic rollback.
+CI/gate/build failures require source fixes, not host builds. SCP failures require progress/partial-file inspection; checksum/image failures stop startup. Backup/migration failures require data-preserving DB/disk/permission investigation. Service failures use scoped logs/loopback/host access checks. Tag-only drift should be repaired separately after runtime verification. RPC failures need redacted API-side reads/authorized provider changes, never contract redeployment.
 
-## 22. Failure Scenarios
+Continue from a verified existing archive/image or failed step rather than rebuilding API/Postgres. Emergency completion does not turn a cancelled Actions run into a successful one.
 
-| Failure | Detection | Current handling | Recovery |
-| --- | --- | --- | --- |
-| Quality Gate / E2E fails | CI red | Successful exact-main gate unavailable | Fix source/tests; rerun correct main CI |
-| Wrong branch/confirmation | Job condition / gate | Deployment skipped or rejected | Dispatch main with exact confirmation |
-| Docker build / architecture fails | Build exit / inspect | Stop before packaging/remote update | Fix and build off-host; never retry Web build on shared host |
-| SSH / SCP interrupted or too slow | Actions step / file progress | Stops/cancels; partial files may remain | Inspect processes/artifact; authorized complete transfer, no blind restart |
-| Checksum mismatch | SHA256 command | Stop before docker load | Replace mismatched files with one consistent verified release |
-| Required image missing | Helper preflight | Stop before startup | Verify/load already-built correct images |
-| Database backup fails | pg_dump or nonempty check | Stop before migration | Diagnose DB/disk/permissions; preserve existing data |
-| No running DB detected | Label lookup | Backup skipped | Distinguish first install from outage before proceeding |
-| Migration fails | One-shot exit | Stop before app update; prior DDL may persist | Inspect migration state; reviewed forward repair |
-| API/Web/Nginx startup fails | Compose wait / health | Stops with potentially mixed versions | Diagnose scoped logs/config; explicit compatible rollback |
-| Gateway/public smoke fails | Curl / health body | Job fails, no automatic rollback | Check application, proxy, listener and access rules in that order |
-| Active-tag persistence fails | Independent readback | Job fails; new containers may already serve | Verify runtime, repair tag only with authorization |
-| Final external check fails | Runner curl retries | Job fails after tag may be persisted | Separate runner network failure from public/runtime outage |
-| Blockchain RPC unavailable | Business error/advisory status | Mint unavailable; off-chain entry still allowed | Read-only RPC/chain diagnosis; authorized runtime-provider change |
+### 9. Historical evidence and safety
 
-## 23. Known Limitations
+The retained 2026-10-07 audit records release20261007-f1c35de, four healthy containers, Web HTTP 200/API DB-connected, six migrations at that time, env / backup 权限 600, other ports8080/10010 healthy and Swarm active. It does not establish production application of the later invitation migration.
 
-- Single host/shared resources; no HA, resource-isolated build workers on the host, blue/green, zero-downtime guarantee or automated rollback.
-- HTTP/no TLS; production browser QR camera and secure transport remain pending.
-- Large full image archives and cross-border SCP dominate release time; unchanged layers are retransferred, and the 60-minute window can be insufficient.
-- Same-tag retries can overwrite artifacts/backups; checksums help identify payloads but no immutable digest/tag policy exists.
-- Backups are same-host, with no automated permissions/retention/restore drill or off-host copy. Database rollback is not implemented.
-- Capacity/retention is manual: the latest audited disk was 84% used. Do not solve this by global shared-host prune.
-- CI does not run full production Compose locally on Runner, Foundry or native/browser hardware acceptance. The latest emergency release did receive separate local production Compose smoke.
-- Runtime secret provisioning/rotation, system Nginx, TLS, issuer funding/custody and Mobile distribution remain deliberate manual operations.
-- Health checks verify application/DB availability, not complete auth/mint/business correctness. Sepolia/provider availability remains an external dependency.
+[Main CI](https://github.com/Maimai10808/chainpass/actions/runs/37632195065) succeeded; [that deploy](https://github.com/Maimai10808/chainpass/actions/runs/37632774513) was cancelled during SCP and completed by Mac emergency delivery. [An earlier automated run](https://github.com/Maimai10808/chainpass/actions/runs/37453088818) succeeded. No live GitHub/host check occurred here.
 
-## 24. Future Architecture Improvements
+Observability is Actions, scoped Docker/Nginx logs, ps/stats, endpoints and free/df/system df—not Prometheus/Grafana/paging. Host SSH/secrets/site/TLS, issuer funding/custody, retention/rollback and Mobile distribution remain manual.
 
-These are suggestions, **not current infrastructure**:
+Never globally prune, leave Swarm, restart Docker, down -v, production migrate dev, print env, occupy8080/10010 or modify others' resources. Operate only on authorized, identified chainpass resources.
 
-| Current | Possible next step |
-| --- | --- |
-| Save/gzip/SCP/load whole archive | Reachable container registry (GHCR or domestic registry), pull only changed layers |
-| Date/SHA tag with same-day reuse | Immutable image digests and run-specific release records |
-| Single-instance sequential replacement | Reviewed blue/green or another low-downtime strategy after measuring need |
-| Same-host manual-retention dumps | Protected off-host backups and periodic isolated restore tests |
-| Forward migrations + manual rollback | Expand/contract migrations and explicit application/schema compatibility |
-| HTTP teaching demo | Domain/TLS plus end-to-end forwarded-proto, Cookie, wallet and camera acceptance |
-| Scoped logs and endpoint checks | Lightweight alerts/telemetry driven by observed failures, not a prebuilt monitoring platform |
-| Raw issuer runtime key and synchronous mint | Audited key custody/rotation and durable receipt/reconciliation work |
+### 10. Limits and future work
 
-Any improvement should preserve the existing API/Auth boundaries, shared-host isolation and observable acceptance criteria. A registry, new branch model, cluster or contract redeployment must not be inferred from this document.
+Current limits: shared single host, HTTP, large repeated archives/SCP, no automatic rollback/resume, same-host backups/manual secrets and hardware acceptance gaps. Health is not full chain/business proof; historical capacity is not current space.
+
+Possible future work—not implemented—includes reachable registry/incremental pulls, immutable digests, off-host backup/restore drills, expand/contract migrations, TLS/low-downtime releases, measured telemetry and issuer custody/receipt workers. None authorizes new infrastructure or deployment.

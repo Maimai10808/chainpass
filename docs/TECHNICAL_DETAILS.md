@@ -1,360 +1,313 @@
-# ChainPass Technical Details
+# ChainPass 技术细节 / Technical Details
 
-This document describes the implementation inspected on **2026-10-07**, not the intended feature set in the original product brief. Start with [README](../README.md) for the product and [Architecture & Deployment](./ARCHITECTURE_AND_DEPLOYMENT.md) for delivery and operations.
+[中文](#zh) · [English](#en)
 
-## 1. System Overview
+<a id="zh"></a>
 
-ChainPass has one identity system and one business API. Web and Mobile present role-specific experiences; NestJS enforces permissions, ownership, inventory and admission rules; PostgreSQL persists those rules' results. The contract adds an independently inspectable token identity and wallet owner.
+## 中文
 
-| Module | Responsibility | Important entry points |
-| --- | --- | --- |
-| Web | Discovery, attendee passes, Merchant operations, Admin views | `apps/web/app`, `components`, `lib/queries.ts` |
-| Mobile | The same API through native User/Merchant/Admin workspaces | `apps/mobile/src/app`, `components/chainpass`, `lib/product.ts` |
-| API | Business logic, Better Auth, blockchain orchestration | `apps/api/src/app.module.ts`, feature directories |
-| Database | Users/sessions, event inventory, passes, wallets and check-ins | `apps/api/prisma/schema.prisma` |
-| Contract | Issuer-only, non-transferable ERC-721 and unique pass mapping | `contracts/src/ChainPass.sol` |
-| Infrastructure | CI, images, gateway, migrations, delivery | `.github/workflows`, `infra` |
+本文解释当前代码如何实现业务闭环；运行与发布见[架构与部署](./ARCHITECTURE_AND_DEPLOYMENT.md#zh)。依据 2026-10-08 本地仓库，不将当前分支等同于生产版本。
 
-No microservices, queue, Redis cache, indexer or separate blockchain transaction table is implemented.
+### 1. 系统与 Monorepo
 
-## 2. Monorepo Architecture
+Web（Next.js 16/React 19）和 Mobile（Expo 57/React Native 0.86）通过共享 Client 调用 NestJS 12。Prisma 7/PostgreSQL 17 保存业务数据；Viem 连接 Ethereum Sepolia。Better Auth 1.7 是唯一用户/Session 系统。
 
-The repository uses **pnpm 12.6.0** workspaces (`apps/*`, `packages/*`) and **Turborepo**. Foundry's `contracts/` is outside the pnpm workspace.
+pnpm 12.6.0 发现 `apps/*`、`packages/*`，本地采用 hoisted 布局。Turbo 编排任务；默认根命令显式限定 Web/API/Mobile 与共享包，实验端只能主动通过 `check:platforms`、`build:all`、`check:all` 纳入。过滤任务不隔离整个 workspace 的依赖解析。
 
-Shared packages export TypeScript source rather than independently compiled distributions:
+| 共享包       | 职责                                                                            |
+| ------------ | ------------------------------------------------------------------------------- |
+| `api-client` | 框架无关的集中 HTTP 调用、错误和 Zod 响应校验；目前手工维护，不是自动生成流水线 |
+| `schemas`    | 跨进程请求/响应 Zod Schema 与类型，不直接导出 Prisma Model                      |
+| `web3`       | ABI、Sepolia、地址规范化、Pass hash 与 Explorer helper                          |
+| `config`     | 共享工程配置，不持有运行时 Secret                                               |
 
-- `@chainpass/schemas`: strict Zod request/response schemas, inferred boundary types, and business status enums.
-- `@chainpass/api-client`: centrally maintained HTTP methods, schema parsing and `ApiClientError`. It accepts an injectable fetch implementation for native cookie transport.
-- `@chainpass/web3`: compiled-contract ABI, official viem Sepolia definition, address normalization, pass hashing and explorer URLs.
-- `@chainpass/config`: shared TypeScript configuration, not runtime secrets.
+五个实验端是最小入口，不具备完整票务能力，见[实验平台](./EXPERIMENTAL_PLATFORMS.md#zh)。Web/Native UI 各自维护。
 
-```mermaid
-flowchart LR
-    W[Web] --> C[api-client]
-    M[Mobile] --> C
-    C --> S[schemas]
-    A[API] --> S
-    W --> B[web3]
-    M --> B
-    A --> B
-    F[Foundry artifact] -. ABI sync .-> B
-```
+### 2. 领域模型
 
-Apps do not import other apps' implementations; packages do not depend on apps. Platform UI remains separate. The root workspace uses hoisted dependencies for Expo; production Docker pruning switches to isolated linking inside the build to package server dependencies reliably.
-
-`turbo.json` runs dependency tasks first through `^build`, `^lint`, `^typecheck` and `^test`. Build caches `.next/**` and `dist/**`; its environment allowlist includes the six Web public settings. `dev` is persistent and uncached. `DATABASE_URL` is included in the test environment. Root build does not distribute a native app or compile Foundry contracts.
-
-## 3. Domain Model
-
-There is no separate Merchant table or Ticket table. A Merchant is a Better Auth `User` with role `merchant`; a ticket issued to an attendee is a `Pass`.
+真实模型是 `User`、`Session`、`Account`、`Verification`、`Event`、`TicketType`、`Invitation`、`Pass`、`Wallet`、`WalletChallenge`、`CheckIn`。Merchant/Admin 是 User 的角色，不是独立用户表。
 
 ```mermaid
 erDiagram
-    USER ||--o{ SESSION : authenticates
-    USER ||--o{ ACCOUNT : credentials
-    USER ||--o{ EVENT : organizes
-    USER ||--o{ PASS : owns
-    USER ||--o| WALLET : binds
-    USER ||--o{ WALLET_CHALLENGE : requests
-    USER ||--o{ CHECK_IN : verifies
-    EVENT ||--o{ TICKET_TYPE : offers
-    EVENT ||--o{ PASS : contains
-    EVENT ||--o{ CHECK_IN : records
-    TICKET_TYPE ||--o{ PASS : allocates
-    PASS ||--o| CHECK_IN : admits_once
-    USER {
-        string id PK
-        string role
-    }
-    EVENT {
-        string id PK
-        string organizerId FK
-        enum status
-        datetime startsAt
-        datetime endsAt
-    }
-    TICKET_TYPE {
-        string id PK
-        string eventId FK
-        bigint price
-        int totalSupply
-        int claimedCount
-        enum status
-    }
-    PASS {
-        string id PK
-        string ownerId FK
-        string ticketTypeId FK
-        string eventId FK
-        enum status
-        string tokenId
-        string mintTxHash
-        string contractAddress
-        int chainId
-    }
-    CHECK_IN {
-        string id PK
-        string passId FK
-        string verifiedById FK
-        enum method
-        datetime verifiedAt
-    }
+    User ||--o{ Session : authenticates
+    User ||--o{ Event : organizes
+    User ||--o{ Pass : owns
+    User ||--o| Wallet : binds
+    User ||--o{ WalletChallenge : signs
+    User ||--o{ Invitation : creates
+    User ||--o{ CheckIn : verifies
+    Event ||--o{ TicketType : offers
+    Event ||--o{ Pass : contains
+    Event ||--o{ CheckIn : records
+    TicketType ||--o{ Invitation : authorizes
+    TicketType ||--o{ Pass : issues
+    Invitation o|--o{ Pass : source
+    Pass ||--o| CheckIn : admits
 ```
 
-Better Auth also owns `Verification`, session and credential fields; those are not ticket verification records. `WalletChallenge` stores a nonce/message/expiry/consumption timestamp. Blockchain results are nullable fields on `Pass`, not a separate transaction entity.
+关键约束：User email 唯一；Wallet 的 userId/address 各自唯一；Pass 的 `(ticketTypeId, ownerId)`、`(contractAddress, tokenId)`、mintTxHash 唯一；CheckIn.passId 唯一；Invitation.tokenHash 唯一。价格用 BIGINT 存储、十进制字符串返回，时间用带时区 ISO 8601 返回。
 
-## 4. Event Lifecycle
+当前有七个已提交 migration；旧记录由新增邀请 migration 保持 PUBLIC，Create Event API 默认 INVITE_ONLY。Schema 的 PUBLIC 默认用于历史/导入兼容，不等于新 API 的默认行为。
 
-Only `DRAFT` and `PUBLISHED` exist. There is no implemented `ACTIVE`, `ENDED`, `ARCHIVED`, unpublish, edit or delete transition.
+### 3. 活动与票种
+
+Event 只有 DRAFT/PUBLISHED，没有自动 Ended/Archived 状态。TicketType 只有 ACTIVE/INACTIVE；现有创建 API 默认 ACTIVE，不提供活动编辑/删除或票种更新 API。
+
+`EventsService.publish()` 检查归属、合法时间范围和至少一个 ACTIVE 票种；缺票种返回 `EVENT_HAS_NO_ACTIVE_TICKET_TYPES`。重复发布返回已有 Event。
+
+`GET /events` 和公开详情只读取 **PUBLIC + PUBLISHED**；Draft/邀请制详情按未找到处理。管理查询独立：`/events/mine` 仅当前 organizer，`/events/admin` 显式 admin-only，`/:id/manage` 与管理票种列表检查 organizer/admin。普通 event read 权限不能访问其他商家的 Draft。
+
+### 4. 邀请与领取
+
+商家只能给自己的已发布邀请制活动创建邀请，绑定活动下一个 ACTIVE 票种。服务器生成 32 字节随机 base64url token；数据库仅存 SHA-256 hash。创建响应只返回一次原始 token，后续列表不可恢复。邀请有 maxUses/usedCount、expiresAt、revokedAt。
+
+匿名 `POST /invitations/resolve` 接收 body token，只返回活动、organizer name、指定票种及剩余次数，不扣库存、不预留名额。链接可转发，不绑定指定实名用户。撤销只影响未来领取。
+
+`PassesService.claim()` 在同一 PostgreSQL 事务内：
+
+1. 确认已发布、票种 ACTIVE，邀请制要求有效且匹配票种的 token。
+2. 检查当前 Session owner 是否已领取该票种。
+3. 条件更新邀请次数：未撤销、未过期且未超额。
+4. 条件扣库存：claimedCount < totalSupply。
+5. 创建独立 ACTIVE Pass，并记录可空 invitationId。
+
+失败回滚次数、库存与 Pass。唯一约束防止竞争请求重复领取。多个邀请指向同一票种会共享库存，而不是各有一套票。价格目前仅为元数据；非零价格也不会触发支付。
+
+Web 用 `/invite#token=…`，登录 next 只含 `/invite`，当前 tab sessionStorage 交接凭证，领取成功或主动清除后移除。独立 Web 没有额外的 30 分钟保留上限。
+
+Mobile 支持粘贴链接和 `chainpass://invite#token=…`：原生 SecureStore、Mobile 的 Expo Web 预览 sessionStorage，保留上限为 30 分钟或已知服务器有效期。新链接替换旧凭证；成功、退出、身份/角色变化或邀请失效后清除。两端资格都以服务器为准，Token 不放进 Auth 返回地址或 Query key；API 用 POST body/no-store。没有 HTTPS Universal Links/App Links 或专门邀请限流。
+
+### 5. Pass 生命周期
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DRAFT: authenticated organizer creates
-    DRAFT --> DRAFT: create ticket types
-    DRAFT --> PUBLISHED: publish with active ticket and valid time range
-    PUBLISHED --> PUBLISHED: publish retry returns current event
+    [*] --> ACTIVE: Claim transaction
+    ACTIVE --> CHECKED_IN: Authorized atomic check-in
+    state ACTIVE {
+        [*] --> OFF_CHAIN
+        OFF_CHAIN --> MINTED: Optional verified-wallet mint
+    }
 ```
 
-[`EventsService.publish`](../apps/api/src/events/events.service.ts) checks existence, organizer ownership unless Admin, at least one `ACTIVE` ticket type, and `endsAt > startsAt`. A draft with no active type returns `EVENT_HAS_NO_ACTIVE_TICKET_TYPES`; this prevents publishing an event with nothing available to claim.
+Mint 写入元数据，不改变 ACTIVE；CHECKED_IN 是数据库入场状态，不 burn Token。Schema 还定义 REVOKED，核验会处理它，但当前没有 Pass 撤销 API，不能把图外的规划状态当作可操作功能。
 
-Public list/detail only query published events; draft public detail returns 404. Detail returns active ticket types, `remaining = totalSupply - claimedCount`, and organizer name, not organizer email. Publication makes the event public to every visitor; there is no attendee allowlist. Start/end are scheduling data, not automatic visibility or claim-expiry gates.
+### 6. 核验、QR 与核销
 
-Merchant `/events/mine` is organizer-filtered, including for Admin. `/events/admin` explicitly requires Admin to list platform drafts and published events. The management detail route rechecks ownership.
-
-## 5. Ticket Lifecycle
-
-TicketType holds inventory; Pass is the issued personal ticket. Claim and mint are independent operations.
-
-```mermaid
-stateDiagram-v2
-    [*] --> ACTIVE: atomic claim
-    ACTIVE --> ACTIVE: present QR or verify, no state change
-    ACTIVE --> ACTIVE: optional mint, metadata added
-    ACTIVE --> CHECKED_IN: organizer or Admin confirms check-in
-    CHECKED_IN --> CHECKED_IN: verify returns already checked in
-    state REVOKED
-    note right of REVOKED
-        Represented and rejected by the system.
-        No revocation API is implemented.
-    end note
-```
-
-`Pass.status` is `ACTIVE`, `CHECKED_IN` or `REVOKED`. Minting does not create another Pass status. The UI's minting/loading state is transient; there is no durable `MINTING` DB state. All lifecycle states above are off-chain. ERC-721 ownership persists after check-in.
-
-Claim uses a Prisma transaction: read the ticket/event, reject unpublished/inactive/duplicate claims, then run a parameterized conditional PostgreSQL update (`claimedCount < totalSupply`) before creating the Pass. The unique `(ticketTypeId, ownerId)` constraint rejects duplicates; any create failure rolls back the inventory increment. Price does not trigger a payment or prevent a claim.
-
-## 6. Merchant Flow
-
-The Merchant UI calls the shared client, which reaches feature-first controllers/services:
-
-| Operation | API path, without production gateway prefix | Implementation |
-| --- | --- | --- |
-| Create draft | `POST /events` | `events/` |
-| List own events | `GET /events/mine` | `EventsService.listManaged` |
-| Manage event | `GET /events/:eventId/manage` | ownership-protected detail |
-| Create/list tickets | `POST` / `GET /events/:eventId/ticket-types` | `ticket-types/` |
-| Publish | `POST /events/:eventId/publish` | publish rules above |
-| Verify | `GET /passes/:passId/verify` or `POST /passes/verify-token` | `check-ins/` |
-| Confirm entry | `POST /passes/:passId/check-in` | atomic check-in |
-
-Creation obtains `organizerId` from Session, not the request body. Merchants cannot manage or admit another organizer's passes. Admin can manage any event. The ticket list route currently requires authenticated `event:read` but does **not** enforce organizer ownership; see Security Considerations for that narrower privacy boundary.
-
-## 7. User Flow
-
-Public discovery/detail do not require login. Claim requires `pass:claim` and derives `ownerId` from the authenticated Session. The API returns the created Pass and remaining inventory.
-
-`GET /passes/me` returns only the user's passes, including event/ticket summaries and mint metadata. There is no separate owner Pass-detail endpoint: both clients locate the requested pass in that response. Holder display uses the signed-in identity.
-
-For optional mint: connect wallet → request challenge → sign the exact message → verify/bind → call mint. Connecting alone is not binding, and binding is not login. For admission: request a server QR credential → show it → organizer verifies → organizer confirms entry. Wallet/mint is not a required admission step.
-
-## 8. Verification / Redemption Design
-
-### Credential format
-
-[`QrVerificationTokenService`](../apps/api/src/check-ins/qr-verification-token.service.ts) creates:
+QR 是临时凭证，不是数据库真相。API 仅允许 ACTIVE Pass owner 生成，60 秒有效：
 
 ```text
-base64url(JSON payload) + "." + base64url(HMAC-SHA256(encoded payload))
-
-payload: { v: 1, passId, ownerId, nonce, iat, exp }
-exp = iat + 60 seconds
+base64url(JSON({ v: 1, passId, ownerId, nonce, iat, exp }))
+.
+HMAC-SHA256(encodedPayload, QR_VERIFICATION_SECRET)
 ```
 
-The nonce is a random UUID; times are integer Unix seconds. This is a signed credential, **not encrypted data and not an authentication JWT**. IDs are readable. It contains no email, cookie, session token, wallet data or secret. The secret must have at least 32 bytes.
+它不含 Email、Session Cookie、钱包私钥或可信 status。签名不是加密，Payload 可读。服务器检查签名长度/constant-time 比较、payload、版本和 expiry，重新查询 Pass/owner，再调用与手工 Pass ID 相同的 Verify Service。
 
-Only the owner of an active Pass can generate it. Resolution checks two-part shape, signature using a constant-time comparison after length checking, payload/version, expiration, and the current DB owner. It then calls the existing Pass Verify service; it never trusts a QR-provided status or organizer. Tampering returns `INVALID_QR_TOKEN`; expiry returns `QR_TOKEN_EXPIRED`.
+过期为 `QR_TOKEN_EXPIRED`，篡改为 `INVALID_QR_TOKEN`。有效期内可以重复只读核验；不建一次性 QR 表。Merchant 仍只能操作自己的活动，Admin 可跨活动核验。
 
-### Current verification result
+Verify 返回 VALID / ALREADY_CHECKED_IN / REVOKED / INVALID，以及 Event、票种、Holder、已有 verifier/time。链上增强状态是 NOT_MINTED / VERIFIED / MISMATCH / UNAVAILABLE；**MISMATCH/UNAVAILABLE 当前不阻止业务有效的 Off-chain 核销**。
 
-| `verificationStatus` | Meaning |
-| --- | --- |
-| `VALID` | Event/ticket relationship consistent, active Pass, no CheckIn |
-| `ALREADY_CHECKED_IN` | Checked-in Pass or existing CheckIn |
-| `REVOKED` | Revoked Pass |
-| `INVALID` | TicketType's event differs from the Pass event |
+Check-in 不自动发生。确认后同一事务条件执行 ACTIVE → CHECKED_IN，并创建唯一 CheckIn，verifiedById 来自 Session，method 为 QR 或 MANUAL。重复/并发冲突返回 `PASS_ALREADY_CHECKED_IN`。扫码只解析凭证，不能直接修改 Pass。
 
-Permission and event ownership are checked before disclosing the result. Verify is read-only. The result includes minimum pass, event, ticket, holder and existing verifier/check-in details.
+Web/Native 在可见且前台时约每五秒刷新持票状态；foreground/refetch 后隐藏已核销 QR，不是 WebSocket 实时推送。扫码器在检测、切换模式、失焦/后台或卸载时清理摄像头，锁定重复帧；摄像头失败保留手工模式。
 
-`onChainStatus` is separate: `NOT_MINTED`, `VERIFIED`, `MISMATCH`, or `UNAVAILABLE`. Complete mint metadata allows an RPC `ownerOf` check against the holder's bound wallet. Partial metadata/configuration or RPC failure is unavailable; a missing/different wallet is mismatch. **Current `canCheckIn` depends on business validity alone, even for `MISMATCH` or `UNAVAILABLE`.** Staff see the chain result as advisory; no hidden blockchain veto exists.
+### 7. 钱包与链上 Mint
 
-### Admission and replay
+钱包绑定不是 Wallet Login。五分钟 challenge 绑定 Session、规范化地址、chain ID、nonce 和 message；个人签名经 `recoverMessageAddress` 校验后，在事务中一次性消耗并写入 Wallet。连接不等于绑定，当前没有解绑/换绑或 EIP-1271 合约钱包验证。
 
-`POST /passes/:passId/check-in` accepts only `method` (`MANUAL` default, or `QR`). It repeats authentication/permission/ownership/status/relationship checks. In one Prisma transaction it conditionally changes `ACTIVE` to `CHECKED_IN`, creates CheckIn, and loads the result. `CheckIn.passId` is unique; competing requests produce one successful record, with duplicates returning `409 PASS_ALREADY_CHECKED_IN`. `verifiedById` comes from Session.
+当前链为 Ethereum Sepolia `11155111`，合约 `ChainPass` / `CPASS`：
+`0xbA3e9bCbe448E928c5e71f4bE6415E7e0e3E5ABb`。公开部署、owner、源码 Sourcify exact_match 与测试 Token #1 见 [sepolia.json](../contracts/deployments/sepolia.json)；地址从 runtime env 注入，不复制到多份业务代码。
 
-The response's optional chain check occurs after the DB transaction commits. RPC failures are caught and represented as `UNAVAILABLE`, rather than undoing admission.
+合约仅 owner 可调用 `mintPass(address, bytes32)`；`passHash = keccak256(UTF-8 Pass.id)`，映射防重复，`PassMinted` 事件提供恢复依据，ERC-721 Transfer 提供 Mint 记录；非零地址之间 transfer 被禁止。活动、票种、库存、邀请、QR、核销均不上链。
 
-A credential may be verified repeatedly while valid. After admission the same unexpired credential resolves to `ALREADY_CHECKED_IN`; after expiry it is expired regardless of admission. There is no consumed-token table. A copied QR can still be presented within its short lifetime: it is not proof of physical holder presence. Replay protection means **one successful admission**, not an uncopyable image.
+API issuer 支付 gas，recipient 来自已验证 Wallet，客户端不能指定 owner/recipient。ACTIVE owner 请求 Mint → 先检查已有 DB/链映射 → 发送交易 → 等待一次确认 → 解析事件 → 校验 ownerOf → 写回 chainId/contractAddress/tokenId/mintTxHash。大整数用字符串传输。
 
-Both clients refresh Pass Detail at five-second intervals while active/visible and refetch on focus. They hide QR when expired or when the Pass is checked in/revoked. There is no WebSocket realtime state channel.
+### 8. 一致性与失败恢复
 
-## 9. Blockchain Architecture
+`PassesService.mint()` 使用基于 Pass ID 的 transaction advisory lock（maxWait 10 秒、timeout 120 秒），序列化同 Pass 请求。链成功、DB 失败时无法撤销交易；重试通过 tokenIdByPassHash、ownerOf 和从 block 0 查询的 PassMinted 日志恢复，不再次 Mint。
 
-The shared chain is official viem **Ethereum Sepolia**, ID `11155111`; explorer helpers target `https://sepolia.etherscan.io` and return null for unsupported chains.
+这不是跨链/数据库原子事务，也没有持久 pending tx、outbox、后台 receipt worker、跨 Pass nonce 调度或完整 reorg 处理。等待外部链会占用 DB 事务/连接；RPC 日志范围限制可能影响恢复。
 
-Public deployment evidence: [`contracts/deployments/sepolia.json`](../contracts/deployments/sepolia.json). Current contract: [`0xbA3e9bCbe448E928c5e71f4bE6415E7e0e3E5ABb`](https://sepolia.etherscan.io/address/0xbA3e9bCbe448E928c5e71f4bE6415E7e0e3E5ABb). That record identifies the deployment block/transaction, Sourcify `exact_match`, and token #1 as a deployment smoke token, not a business ticket.
+My Passes 的 `ON_CHAIN_VERIFIED` 表示完整持久化 Mint 元数据，不是在每次列表展示时重新读取 RPC。Merchant Verify 才可额外查当前 ownerOf；不要混淆两种证据。
 
-| Contract item | Responsibility |
-| --- | --- |
-| `ChainPass` | OpenZeppelin ERC-721 + Ownable; name `ChainPass`, symbol `CPASS` |
-| `mintPass(address, bytes32)` | Owner-only mint; rejects zero recipient/hash and duplicate hash |
-| `tokenIdByPassHash` | Database-pass identity → unique token ID |
-| `nextTokenId` | IDs start at 1 |
-| `ownerOf`, `owner`, `name`, `symbol` | Standard token/issuer/metadata reads |
-| `PassMinted(passHash, tokenId, owner)` | Indexed event for receipt parsing and recovery |
-| `_update` override | Rejects transfer between nonzero owners |
+### 9. API 与身份边界
 
-The stable mapping is `passHash = keccak256(UTF-8 Pass.id)`. The contract does not store Event, TicketType, personal data, QR credentials, entry state, token artwork metadata or a redemption function. No transfer, resale or burn product endpoint is provided.
+API 按 Feature 聚合 Controller、DTO、Service、Module；Prisma 使用生成到 `src/generated/prisma` 的 Client 与 PrismaPg adapter，NodeNext/ESM 保留 `.js` import。Swagger 为 `/docs`、`/docs/openapi.json`。
 
-[`BlockchainService`](../apps/api/src/blockchain/blockchain.service.ts) reads RPC/chain/contract and issuer key at runtime. Backend, not the user's wallet, submits and pays gas for mint. It first reads the pass mapping; if absent it simulates, writes, waits for **one confirmation**, parses `PassMinted`, and checks `ownerOf`. Only then does PassesService store chain ID, contract address, decimal-string token ID and transaction hash.
+唯一规则：Session → Permission → Ownership → Business Rule。公开注册默认 user，Merchant 由 Better Auth Admin API 提升；Admin 初始配置必须明确授权。Body 不能决定 organizerId、ownerId、verifiedById 或 role。
 
-Existing on-chain tokens are recovered by mapping, wallet-owner comparison and `PassMinted` logs from block zero. Wrong owner is a conflict; missing logs is unavailable. This depends on provider historical-log support. There is no persistent transaction queue, pending-hash record, background reconciler or finalized-block/reorg policy.
+输入/输出由共享 Zod 与 DTO 控制；无统一成功 envelope。业务错误提供 HTTP status/code/message，客户端不能展示原始 SQL/stack/provider credential。接口表见 [API 契约](./API_CONTRACT.md#zh)，Auth 细则见[身份架构](./AUTH_ARCHITECTURE.md#zh)。
 
-The Solidity deployment script uses `vm.startBroadcast()` with a CLI signer and a public `DEPLOYER_ADDRESS`, rather than loading a private key inside Solidity. Contract deployment is independent of application CD.
+### 10. Web 与 Mobile
 
-## 10. Database Architecture
+Web 是 App Router + client Session/Query/mutation，Base UI shadcn、RHF/Zod、Sonner、semantic tokens 与克制 Motion。Reown/Wagmi 签 challenge，API Mint；QR 用 qrcode.react，Scanner 用 ZXing。当前 Hero/Pass 主要是 CSS/Motion，不依赖必须可用的 WebGL。auth-test 只重定向 login。
 
-PostgreSQL 17 uses Prisma 7's generated client at `apps/api/src/generated/prisma` and `PrismaPg` driver adapter. [`prisma7.config.ts`](../apps/api/prisma7.config.ts) supplies the datasource URL and migration directory. Six existing migrations establish Auth, Event, TicketType, Pass, wallet/mint, and CheckIn.
+Mobile 使用 Expo Router 角色工作区、NativeWind 4/Native Components、Reanimated/Skia；Better Auth Expo Session 在 SecureStore。WalletConnect namespaced AsyncStorage 仅存连接元数据。Query 私有 key 含 User ID，身份改变清缓存，mutation 不自动重试。QR 在内存中，过期前十秒刷新，后台/失焦清除；原生分享、深链与相机生命周期见 [Mobile](../apps/mobile/README.md#zh)。
 
-Important final constraints:
+两端不导入 Prisma，不复制库存、邀请、Mint 或核销逻辑。实验端没有业务调用。完整 Native 钱包验收使用 development build；不宣称所有依赖都可在 Expo Go 中验收。
 
-- User email and Session token unique; foreign keys preserve identity associations.
-- TicketType SQL checks: nonnegative price, positive supply, `0 <= claimedCount <= totalSupply`.
-- Pass unique `(ticketTypeId, ownerId)`, `(contractAddress, tokenId)`, and `mintTxHash`.
-- CheckIn unique `passId`; event/verifier time indexes support lookup.
-- Wallet unique `userId` and canonical address; challenge nonce unique.
-- Event `(status, startsAt)`, Pass `(ownerId, createdAt)` and event indexes match main queries.
+### 11. 测试与验收证据
 
-Pass event and TicketType event are independently referenced, not enforced by a composite relationship constraint. Services create consistent records and verification explicitly rejects mismatches. Token uniqueness is contract-address/token based, not chain/address/token based; the single-chain scope matters.
+| 层         | 命令与范围                                                      |
+| ---------- | --------------------------------------------------------------- |
+| API unit   | `pnpm --filter api test`，Vitest                                |
+| API E2E    | `pnpm --filter api test:e2e`，Nest/Supertest/隔离 PostgreSQL    |
+| Web/Mobile | 各自 `test`，Node 纯逻辑/视觉规则测试                           |
+| Web3       | `pnpm --filter @chainpass/web3 test`，链/hash/地址/Explorer     |
+| 合约       | `cd contracts && forge test`，issuer、重复 Mint、归属、不可转让 |
 
-PostgreSQL owns admission and inventory. The chain owns the token record. `ON_CHAIN_VERIFIED` in the owner pass view means complete metadata persisted after mint verification; **`GET /passes/me` does not perform a fresh RPC read**. Merchant verification performs the optional live check. These two status vocabularies must not be conflated.
+普通 E2E 替换 BlockchainService。真实链集成文件只有 BLOCKCHAIN_INTEGRATION=true 才执行，应显式使用隔离 Anvil，不给普通 CI 配置 Sepolia 私钥。CI 不跑 Foundry、摄像头/钱包硬件或真实生产交易。
 
-## 11. API Architecture
+已记录的 2026-10-08 本地邀请验收为 API E2E 93 passed / 1 skipped（串行，先前并行受构建负载超时）、Mobile 25 纯测试、根质量检查与 iOS/Android Hermes export，通过真实本地 API/DB 的 Expo Web 邀请/领取/QR/核销。未在本次文档修改中重跑这些业务验收。原生系统分享、SecureStore 进程重启、安装深链、相机和钱包跳转仍需真机证据。
 
-NestJS 12 organizes `events`, `ticket-types`, `passes`, `wallets`, `check-ins`, `blockchain`, `auth`, `database` and `health` features. Controllers carry Swagger metadata and session/permission decorators. Services use Prisma directly; no extra Repository layer exists.
+Sepolia 历史应用 Mint、浏览器角色验证与设备限制分别记录在 [Web](../apps/web/README.md#zh) / [Mobile](../apps/mobile/README.md#zh)，不等同于每个 release 的生产验收。
 
-API uses ESM/NodeNext with runtime `.js` import suffixes. Custom DTO pipes validate strict shared Zod schemas and return `VALIDATION_ERROR` with field issues. Output mapping excludes internal Auth data, uses timezone-qualified ISO dates, and serializes BigInt price/token values as decimal strings.
+### 12. 安全与取舍
 
-Authentication routes are Better Auth's `/api/auth/*`; direct Nest business routes have **no `/api` prefix**. In production the gateway maps `/api/events` to `/events`, while preserving `/api/auth/*`. Swagger is direct `/docs` and JSON `/docs/openapi.json`, or `/api/docs` through the gateway.
+已实现 Session/RBAC/Ownership、Schema 校验、事务与唯一约束、一次性 Wallet challenge、签名/过期 QR、issuer-only Mint 和不可转让。Origin/CSRF 保持开启，issuer/Auth/QR Secret 只在 API runtime。
 
-The shared client is handwritten and schema-validated, centrally aligned with controllers/OpenAPI. **An automated OpenAPI client generator is not implemented.** No unified success envelope or API version prefix exists. Errors use HTTP status and business `code`/`message`, with details where appropriate; `ApiClientError` carries these fields.
+限制包括 HTTP 教学入口无 TLS、QR 在 TTL 内可复制、可转发邀请不是实名邀约、无专门限流/WAF/Email 验证 onboarding、无 issuer custody/rotation 服务、同步 Mint 不适合高并发。单服务器、轮询、可选上链和无 QR 表是当前明确取舍，不是金融级安全或高可用承诺。
 
-## 12. Authentication & Authorization
+---
 
-Better Auth is the sole User/Session system: email/password, Prisma adapter, Admin plugin/custom access control, and Expo plugin. Web uses cookie sessions; native Mobile uses SecureStore via the Expo Auth client and forwards its cookie through injected fetch. Wallet signatures establish a linked wallet, not a new login identity.
+<a id="en"></a>
 
-| Role | Implemented business boundary |
-| --- | --- |
-| User | Public discovery; own claims, passes, wallet and mint; cannot verify/check in |
-| Merchant | Own event creation/publishing/tickets and gate operations; no attendee claim/mint permission |
-| Admin | User listing/promotion, platform event list and cross-organizer management/verification; owner-only wallet/mint rules still apply |
-| Anonymous | Public published events; protected calls return 401 |
+## English
 
-Registered accounts default to `user`. Merchant promotion uses Better Auth Admin `setRole`, not a custom role-update endpoint. Public forms have no role field. Initial Admin provisioning is deliberate; the provided Demo bootstrap is guarded to a local development DB and must not be used on production.
+This is the implementation reference; [Architecture & Deployment](./ARCHITECTURE_AND_DEPLOYMENT.md#en) owns delivery. Facts reflect local source on 2026-10-08, not proof this branch is live.
 
-Session → Permission → Resource ownership → Business rule is the server boundary. Web/native route gates and safe role-aware redirect allowlists are UX protections, not alternatives to API checks. Permission declarations mentioning delete/revoke do not implement those operations.
+### 1. System and monorepo
 
-Wallet challenge validity is five minutes, scoped to Session user, normalized address, chain ID, nonce and stored message. `recoverMessageAddress` verifies the personal-message signature. A conditional transactional consumption and unique wallet constraints prevent challenge reuse/races and duplicate bindings. Wallets cannot be self-service replaced or unbound; contract-wallet EIP-1271 validation is not implemented.
+Next.js 16/React 19 Web and Expo 57/React Native 0.86 Mobile call NestJS 12 through shared contracts. Prisma 7/PostgreSQL 17 own business data; Viem connects Sepolia; Better Auth 1.7 is the only User/Session system.
 
-## 13. Web Architecture
+pnpm 12.6.0 discovers apps/* and packages/* with a hoisted local layout. Default Turbo root commands explicitly filter Web/API/Mobile/shared packages. Experimental clients require check:platforms/build:all/check:all; task filtering does not isolate dependency resolution.
 
-Next.js App Router combines server route wrappers/layouts with client-side session/query/mutation UI. Public pages, owner Pass routes, Merchant and Admin workspaces share the App Shell and semantic Holographic Graphite foundation. UI primitives are **Base UI shadcn**, not a separate shared UI package.
+api-client centralizes framework-independent HTTP/errors/Zod response parsing and is currently handwritten, not generated. schemas contains boundary schemas/types, not Prisma records. web3 contains ABI/chain/address/hash/explorer helpers; config contains engineering configuration, never secrets. UI stays platform-local. See [experimental workspaces](./EXPERIMENTAL_PLATFORMS.md#en).
 
-TanStack Query stores public events separately from owner passes/wallet and Merchant queries keyed by user ID; sign-out clears caches. Mutations invalidate relevant lists/details; mutation retries are disabled. Admin list/search/promotion uses the Better Auth Admin client adapter.
+### 2. Domain model
 
-RHF/Zod forms, Sonner feedback, loading/error/empty states, keyboard focus and reduced-motion-aware Motion improve the product without replacing server rules. R3F/Three dependencies are installed, but the current hero/pass interaction uses CSS/Motion rather than a required WebGL scene. `/auth-test` is a compatibility redirect to `/login`.
+Actual models: User, Session, Account, Verification, Event, TicketType, Invitation, Pass, Wallet, WalletChallenge and CheckIn. Merchant/Admin are User roles, not separate identity tables.
 
-Web QR uses `qrcode.react`; scanning uses `@zxing/browser`, stops controls/MediaStream tracks on detection/mode change/unmount, and locks duplicate frames. Missing/denied camera or an insecure origin offers manual fallback. Reown/Wagmi connects Sepolia wallets; without a Reown ID the injected-wallet connector remains available. Signing calls the existing challenge/verify API; mint calls the backend.
+```mermaid
+erDiagram
+    User ||--o{ Session : authenticates
+    User ||--o{ Event : organizes
+    User ||--o{ Pass : owns
+    User ||--o| Wallet : binds
+    User ||--o{ WalletChallenge : signs
+    User ||--o{ Invitation : creates
+    User ||--o{ CheckIn : verifies
+    Event ||--o{ TicketType : offers
+    Event ||--o{ Pass : contains
+    Event ||--o{ CheckIn : records
+    TicketType ||--o{ Invitation : authorizes
+    TicketType ||--o{ Pass : issues
+    Invitation o|--o{ Pass : source
+    Pass ||--o| CheckIn : admits
+```
 
-## 14. Mobile Architecture
+Unique constraints protect user email, wallet user/address, Pass(ticketTypeId, ownerId), Pass(contractAddress, tokenId), mintTxHash, CheckIn.passId and Invitation.tokenHash. Prices are database BIGINT/decimal response strings; dates are timezone-qualified ISO 8601.
 
-The current Mobile implementation is **not limited to attendee screens**. It includes User tabs, Merchant overview/events/create/ticket/publish/QR/manual check-in, and Admin user/event/promotion screens. Older architecture/scope descriptions still describing user-only Mobile are historical.
+Seven committed migrations exist. The invitation migration preserves legacy PUBLIC events; Create Event defaults to INVITE_ONLY. The schema PUBLIC default is compatibility for legacy/imported records, not the API default.
 
-Expo SDK 57, React Native 0.86, Expo Router, NativeWind 4, Reanimated/Skia and native components implement the dark-first UI independently from Web. `chainpass://` remains the deep-link scheme; no manually maintained native project directories or production app-store release workflow exists.
+### 3. Events and tickets
 
-- Better Auth persists Session in SecureStore. Reown/Ethers uses namespaced AsyncStorage **only for wallet connection metadata**, not authentication, private keys or QR credentials.
-- `lib/product.ts` defines public/private query keys and redirect/QR/camera helpers; Session changes remove private data. AppState drives focus and QR/camera lifecycle.
-- QR renders via `react-native-qrcode-svg`, rotates ten seconds before expiry, lives in memory and clears on background/blur. Pass polling runs only while foregrounded/focused.
-- `expo-camera` scans QR; unmounting on blur/background/detection and a synchronous lock prevent background camera use and scan storms.
-- Both modes call the same API; confirmation submits `QR` or `MANUAL`. Reown wallet binding and API mint UI also exist.
-- Metro pins Valtio resolution to the native Reown SDK instance to avoid separate proxy registries in the hoisted monorepo.
+Event states are DRAFT/PUBLISHED, without automatic Ended/Archived. TicketType states are ACTIVE/INACTIVE; creation defaults ACTIVE. Event edit/delete and ticket update APIs are absent.
 
-Recorded acceptance covers Expo Web role flows, real local API/DB/Sepolia mint, pure tests and iOS/Android Hermes exports. **Physical camera, external-wallet handoff, native session restoration, haptics and keyboard behavior still require device acceptance.** Full native wallet acceptance uses a development build; Expo Go compatibility for every dependency is not asserted. Expo Doctor's recorded 20/21 result leaves a native-module duplication warning.
+EventsService.publish checks ownership, valid dates and at least one ACTIVE ticket, otherwise EVENT_HAS_NO_ACTIVE_TICKET_TYPES. Repeat publication returns the existing event.
 
-## 15. Security Considerations
+Public list/detail select only PUBLIC + PUBLISHED; draft/private detail returns not found. Management is separate: mine is organizer-scoped, admin explicitly admin-only, manage and ticket management list enforce organizer/admin. Generic event-read permission does not expose other organizers' drafts.
 
-Implemented defenses include Session/role checks, resource ownership, strict input validation, atomic inventory/check-in, database uniqueness, five-minute one-use wallet challenges, signed/expiring QR credentials, issuer-only mint and non-transferability. Origins/CSRF protections remain enabled. Docker context/Git exclude real env files and secrets; issuer/Auth/QR secrets are runtime-only API settings.
+### 4. Invitations and claims
 
-Current limits, rather than implied guarantees:
+A merchant creates invitations for an ACTIVE ticket of their own published INVITE_ONLY event. Tokens are 32 random bytes/base64url; only SHA-256 hashes are stored. Raw tokens are returned once, never recoverable from lists. maxUses/usedCount, expiresAt and revokedAt enforce eligibility.
 
-- The public teaching environment is HTTP; TLS transport and browser camera acceptance remain pending.
-- `GET /events/:eventId/ticket-types` is authenticated but not organizer-filtered and can reveal ticket metadata for a known draft ID. Public event endpoints themselves hide drafts.
-- Check-in treats chain mismatch/unavailability as advisory. Dynamic QR is transferable as an image within its lifetime, with one-time admission enforced at the Pass level.
-- No bespoke rate-limiting/WAF layer, production email-verification onboarding, QR session binding, security audit or issuer-key custody/rotation service is implemented.
-- Wallet binding is an EOA personal-signature flow, not a full SIWE authentication or contract-wallet flow.
-- Do not distribute Demo passwords, session cookies, raw RPC credentials or test-wallet private keys in submission assets.
+Anonymous POST /invitations/resolve accepts the token in its body and exposes minimal event/organizer name/designated ticket/remaining uses. It consumes nothing and reserves no stock. Links are forwardable, not tied to a named user; revocation blocks future claims only.
 
-## 16. Error Handling & Consistency
+PassesService.claim runs one transaction: verify published/ACTIVE and a matching invitation when required; check duplicate ownership; conditionally consume live quota; conditionally increment claimedCount below supply; create an independent ACTIVE Pass with optional invitationId. Failure rolls all changes back, with uniqueness as the race defense. Invitations for one ticket share its inventory. Price is metadata; even nonzero prices do not invoke payment.
 
-| Situation | Current behavior |
-| --- | --- |
-| Claim/check-in duplicate or competing request | Conditional DB update plus uniqueness; loser receives conflict; transaction rolls back partial changes |
-| Blockchain unavailable before mint | API returns a stable unavailable error; Pass stays off-chain |
-| Chain mint succeeds, DB transaction fails | Chain cannot roll back; later owner retry reads mapping, verifies owner and restores metadata from logs |
-| DB already contains complete mint result | Active owner's retry returns it without a second transaction |
-| RPC fails during Merchant verification | `UNAVAILABLE`; a business-valid pass remains checkable |
-| QR expired | Explicit `QR_TOKEN_EXPIRED`, not an invalid-pass result |
+Web uses /invite#token=… and tab sessionStorage, with only /invite in login next. Successful claim or explicit clear removes it; standalone Web has no additional 30-minute retention cap.
 
-Mint holds a transaction-scoped PostgreSQL advisory lock derived from Pass ID across the external chain call (transaction max wait 10 seconds, timeout 120 seconds). This serializes same-pass mint attempts but ties up a DB connection while waiting for a receipt. It is not an atomic DB+chain transaction. Pending transactions, provider log limits, reorgs, and signer nonce coordination across different concurrent passes are not solved by that lock. A production-scale job/receipt reconciliation mechanism is a future change, not current behavior.
+Mobile supports pasted links and chainpass://invite#token=…; native SecureStore, or sessionStorage in Mobile's Expo Web preview, retains it for at most 30 minutes or known server expiry. Replacement, successful claim, sign-out, identity/role change and terminal invalidity clear it. Both clients rely on server eligibility. Credentials stay out of auth return URLs/query keys; API uses POST/no-store. Universal/App Links and dedicated invitation rate limiting are absent.
 
-## 17. Testing
+### 5. Pass lifecycle
 
-| Layer | Existing coverage / command |
-| --- | --- |
-| API unit | Vitest normal `*.spec.ts`; `pnpm --filter api test` |
-| API E2E | Nest testing app + Supertest + PostgreSQL; `pnpm --filter api test:e2e` |
-| Web | Node tests for role redirects and design foundation; `pnpm --filter web test` |
-| Mobile | Node tests for foundation, role/query/QR/camera/wallet helpers; `pnpm --filter mobile test` |
-| Web3 package | Chain ID/name, pass hash, address and explorer helpers; `pnpm --filter @chainpass/web3 test` |
-| Contract | Foundry issuer/duplicate/hash/recipient/owner/transfer tests; `cd contracts && forge test` |
+```mermaid
+stateDiagram-v2
+    [*] --> ACTIVE: Claim transaction
+    ACTIVE --> CHECKED_IN: Authorized atomic check-in
+    state ACTIVE {
+        [*] --> OFF_CHAIN
+        OFF_CHAIN --> MINTED: Optional verified-wallet mint
+    }
+```
 
-E2E files cover event creation/publication/managed lists, tickets, claim inventory/races, wallets/signature replay, mint owner/idempotency/failure/recovery orchestration, QR expiry/tamper, and check-in concurrency. They initialize Nest with `bodyParser: false`, preserving Better Auth's request handling, and clean only run-specific fixtures. Run them against an isolated test database.
+Mint adds metadata without changing ACTIVE. Check-in is a DB transition, not a burn. REVOKED exists in the schema and verifier, but no revocation API implements that transition.
 
-The ordinary suite replaces BlockchainService in mint/check-in tests. `blockchain.service.integration.e2e-spec.ts` is enabled **only** by `BLOCKCHAIN_INTEGRATION=true`; it performs a real configured-chain mint and recovery and is intended for isolated Anvil. Set RPC/chain/contract and a disposable local issuer only after deliberately deploying the local test contract. Never enable it casually with production/Sepolia runtime secrets.
+### 6. Verification, QR and admission
 
-GitHub CI has independent **Quality Gate** and **API E2E** jobs; details and exact current run evidence are in [Architecture & Deployment](./ARCHITECTURE_AND_DEPLOYMENT.md#4-ci-quality-gate). The local acceptance record reports **79 E2E tests passed, one opt-in test skipped**, plus 15 Mobile pure tests; see [Mobile validation record](../apps/mobile/README.md#validation-record-2026-10-07). This documentation audit did not rerun those live-mint or device flows. CI does not run Foundry, physical devices or a production transaction.
+Only an ACTIVE Pass owner can request a 60-second credential:
 
-Public evidence distinguishes deployment smoke token #1 from application-level mints: [Web token #3](https://sepolia.etherscan.io/tx/0xe3c7021a1d900f7164b2d797f291921868c68615837a514f71f6b54de2ccec04) and [local Mobile acceptance token #5](https://sepolia.etherscan.io/tx/0xf11fef27990f05f97dcafcdeacff72b41310dfb65c816b84ed67ee2f1cf86fe8) are recorded in platform READMEs. Those records are not proof of new production business acceptance on every release.
+```text
+base64url(JSON({ v: 1, passId, ownerId, nonce, iat, exp }))
+.
+HMAC-SHA256(encodedPayload, QR_VERIFICATION_SECRET)
+```
 
-## 18. Technical Trade-offs
+No email/session/private wallet/status claim is included. Signing is not encryption. The server checks signature length/constant-time equality, shape/version/expiry, then reloads Pass/owner and reuses manual Verify. Expiry is QR_TOKEN_EXPIRED; tamper is INVALID_QR_TOKEN. Read-only reuse within TTL is allowed; no one-use QR table exists.
 
-| Choice | Reason and boundary |
-| --- | --- |
-| Monorepo with shared boundary packages | One API/schema/hash contract for two UIs; no forced Web/native component sharing |
-| DB business state + optional chain identity | Inventory/admission stays transactional and usable during RPC outages; chain does not provide decentralized admission |
-| Issuer-paid, non-transferable mint | Simple ownership correspondence and no attendee gas requirement; platform key remains trusted and operationally sensitive |
-| Short-lived signed QR without a token table | Reuses existing verification and admission uniqueness; does not stop copying within TTL |
-| Synchronous receipt and mapping recovery | Demonstrable confirmed result and retry path; not a scalable durable transaction worker |
-| Five-second status polling | Straightforward cross-client admission sync; not instantaneous realtime |
-| Single Compose host / archived images | Reproducible release on constrained infrastructure; no HA, automated DB rollback, registry layer reuse or guaranteed zero downtime |
+Merchant verification is organizer-scoped; admin may cross organizers. Results: VALID/ALREADY_CHECKED_IN/REVOKED/INVALID, with minimal event/ticket/holder/existing verifier/time. Optional chain states NOT_MINTED/VERIFIED/MISMATCH/UNAVAILABLE are advisory: mismatch/outage does not block otherwise business-valid off-chain admission.
 
-These are explicit hackathon trade-offs. Next steps should respond to measured needs, not retroactively describe queues, payments, wallet login, decentralized redemption or app-store delivery as implemented.
+Staff explicitly confirm check-in. One transaction conditionally changes ACTIVE to CHECKED_IN and creates the unique CheckIn, with Session-derived verifier and QR/MANUAL method. Duplicate/racing admission returns PASS_ALREADY_CHECKED_IN. Scanners never write Pass state directly.
+
+Owner screens poll about every five seconds while visible/foregrounded and refetch on return, then hide checked-in QR. This is not WebSocket realtime. Scanner detection, mode changes, blur/background/unmount clean up camera; duplicate-frame locks and manual fallback remain.
+
+### 7. Wallets and mint
+
+Binding is not wallet login. A five-minute challenge binds Session, canonical address, chain, nonce and stored message. recoverMessageAddress verifies the personal signature; atomic consumption and unique Wallet constraints prevent reuse/races. Connection alone is not binding. Unbind/rebind and EIP-1271 contract-wallet validation are absent.
+
+Ethereum Sepolia 11155111 hosts ChainPass/CPASS at 0xbA3e9bCbe448E928c5e71f4bE6415E7e0e3E5ABb. [sepolia.json](../contracts/deployments/sepolia.json) records deployment, owner, Sourcify exact_match and smoke Token #1. Runtime addresses come from env.
+
+Only contract owner calls mintPass(address, bytes32). passHash is keccak256(UTF-8 Pass.id); mapping prevents duplicates; PassMinted supports recovery and ERC-721 Transfer records minting. Nonzero-to-nonzero transfers are disabled. Event/ticket/stock/invitation/QR/admission state stays off-chain.
+
+The API issuer pays gas. Recipient comes from the verified wallet, never client owner/recipient input. ACTIVE owner → inspect DB/mapping → transaction → one confirmation → event/ownerOf checks → chainId/contractAddress/tokenId/mintTxHash persistence. Large integers cross JSON as strings.
+
+### 8. Consistency and recovery
+
+PassesService.mint holds a Pass-derived transaction advisory lock (10-second max wait, 120-second timeout). If the chain succeeds but DB fails, a later retry reads tokenIdByPassHash, ownerOf and PassMinted logs from block zero to restore metadata without minting twice.
+
+This is not atomic across DB/chain. There is no durable pending tx, outbox/receipt worker, cross-Pass nonce coordination or complete reorg recovery. Waiting holds a DB connection; provider log-range restrictions can impede recovery.
+
+My Passes ON_CHAIN_VERIFIED means complete persisted mint metadata, not a fresh RPC read on every render. Merchant verification may additionally read current ownerOf. These are different proofs.
+
+### 9. API and identity
+
+Features colocate controllers/DTOs/services/modules. Prisma generates into src/generated/prisma and uses PrismaPg; NodeNext/ESM uses .js imports. Swagger is /docs and /docs/openapi.json.
+
+Session → Permission → Ownership → Business Rule is authoritative. Registration defaults user; Better Auth Admin promotes merchants; first-admin provisioning needs deliberate authority. Request bodies never decide organizer/owner/verifier/role.
+
+Shared Zod and DTOs define boundaries; no universal success envelope exists. Errors expose HTTP/code/message, not SQL/stack/provider credentials. See [API Contract](./API_CONTRACT.md#en) and [Auth](./AUTH_ARCHITECTURE.md#en).
+
+### 10. Web and Mobile
+
+Web uses App Router/client sessions/Query, Base UI shadcn, RHF/Zod, Sonner, semantic tokens and restrained Motion. Reown/Wagmi signs challenges; API mints. qrcode.react renders and ZXing scans. CSS/Motion, not mandatory WebGL, drives hero/pass visuals. auth-test redirects to login.
+
+Mobile uses Expo Router role workspaces, NativeWind/native components, Reanimated/Skia. Better Auth Expo stores Session in SecureStore; WalletConnect namespaced AsyncStorage holds connection metadata only. Private query keys include user ID; identity changes clear cache; mutations do not auto-retry. QR stays in memory, rotates ten seconds before expiry and clears on blur/background. See [Mobile](../apps/mobile/README.md#en).
+
+Neither client imports Prisma or duplicates inventory/invitation/mint/admission rules. Scaffolds have no business calls. Full native wallet acceptance needs a development build; complete Expo Go compatibility is not asserted.
+
+### 11. Tests and acceptance
+
+API unit uses Vitest (pnpm --filter api test); E2E uses Nest/Supertest/isolated PostgreSQL (test:e2e). Web/Mobile run Node logic/foundation tests; web3 tests chain/hash/address/explorer; Foundry tests issuer/duplicates/ownership/transfers.
+
+Ordinary E2E replaces BlockchainService. Real-chain integration only runs with BLOCKCHAIN_INTEGRATION=true, deliberately configured for isolated Anvil; normal CI never needs a Sepolia key. CI excludes Foundry, hardware and production transactions.
+
+The recorded 2026-10-08 invitation acceptance passed 93 E2E tests/one opt-in skip (serial; an earlier concurrent run timed out under build load), 25 Mobile pure tests, root quality commands and iOS/Android Hermes exports. Expo Web used real local API/DB for invitation/claim/QR/check-in. This documentation edit did not repeat those flows. Native sharing, restart SecureStore, installed links, camera and wallet handoff still need physical-device evidence.
+
+Historical Sepolia mints/browser acceptance/device limits are retained in [Web](../apps/web/README.md#en) and [Mobile](../apps/mobile/README.md#en), not proofs of every production release.
+
+### 12. Security and trade-offs
+
+Implemented: sessions/RBAC/ownership, schema checks, transactions/uniqueness, one-use wallet challenges, signed/expiring QR, issuer-only mint and non-transferability. Origin/CSRF remain enabled; issuer/Auth/QR secrets are API-runtime-only.
+
+Limits: HTTP teaching origin without TLS, copied QR valid within TTL, forwardable invitations not identity-bound, no dedicated rate limiting/WAF/email-verification onboarding/key custody service, and synchronous mint unsuitable for scale. Single host, polling, optional chain identity and no QR table are explicit trade-offs, not financial-grade security or HA guarantees.

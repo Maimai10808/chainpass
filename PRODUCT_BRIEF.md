@@ -1,403 +1,98 @@
-# ChainPass Product Brief
+# ChainPass 产品说明 / Product Brief
 
-> 本文档是 ChainPass 项目的核心业务说明。
-> 后续进行产品设计、数据库设计、API 设计、智能合约设计、Web / Mobile 开发时，应优先以本文档定义的业务目标和边界为准，避免自行扩展无关业务。
+[中文](#zh) · [English](#en)
 
----
+<a id="zh"></a>
 
-# 1. 项目定位
+## 中文
 
-**ChainPass 是一个链上数字票务与核销平台。**
+### 产品定位
 
-平台允许活动主办方创建活动并发行数字门票，用户领取门票后获得属于自己的数字 Pass。
+ChainPass 为活动组织者提供创建活动、发行门票和核销流程，为参与者提供领取、持有与出示门票体验。它是一个已经贯通 Web、Mobile、API、数据库与测试网的黑客松项目，不是售票支付平台，也不把所有业务强行放到链上。
 
-每张 Pass 拥有唯一身份，并可关联链上 Token / Ownership 信息。
+### 角色与价值
 
-活动现场可以对用户持有的 Pass 进行核验和核销，核销结果同步回业务系统。
+- User：领取属于自己的 Pass，查看状态，展示短时 QR；可选绑定钱包并 Mint。
+- Merchant：只管理自己活动及对应票种/邀请，核验和确认入场。
+- Admin：管理用户角色、查看全平台活动并跨 organizer 管理；不开放自助注册。
+- 公开访客：浏览 PUBLIC + PUBLISHED 活动，或凭有效邀请预览指定票种。
 
-核心目标：
+不同商家不共享活动管理权限，也不能核销其他商家的票。身份、资源归属和业务状态由 API 决定，客户端只展示结果。
 
-**让数字门票完成「发行 → 领取 → 链上确权 → 持有 → 核验 → 核销」的完整闭环。**
-
----
-
-# 2. 三端角色
-
-ChainPass 分为三个主要业务端。
-
-## A 端：平台管理员
-
-平台级管理角色。
-
-主要职责：
-
-- 管理商家 / 活动主办方
-- 管理平台活动
-- 查看平台整体运营数据
-- 查看门票发行、领取、核销情况
-- 处理异常商家、活动或门票
-
-A 端不是核心出票方，主要承担平台治理和运营职责。
-
----
-
-## B 端：商家 / 活动主办方
-
-ChainPass 的核心业务角色。
-
-商家可以：
-
-- 创建活动
-- 编辑活动信息
-- 创建票种
-- 设置票数
-- 发布门票
-- 查看领取情况
-- 查看剩余票量
-- 查看门票持有人
-- 核验用户门票
-- 扫码核销门票
-- 查看活动实时数据
-
-典型数据：
-
-- Issued
-- Claimed
-- Remaining
-- Checked In
-
-B 端承担主要的票务发行和现场核销流程。
-
----
-
-## C 端：普通用户
-
-数字门票的持有者。
-
-用户可以：
-
-- 浏览活动
-- 查看活动详情
-- 领取门票
-- 查看自己的数字 Pass
-- 查看门票状态
-- 查看链上信息
-- 展示门票二维码
-- 接受现场核验和核销
-
-用户核心页面：
-
-- Discover
-- My Passes
-- Pass Detail
-- Profile
-
----
-
-# 3. 核心业务流程
-
-ChainPass 第一阶段只围绕下面这条主链开发：
+### 当前业务闭环
 
 ```text
-商家创建活动
-    ↓
-创建票种并设置票数
-    ↓
-发布活动 / 门票
-    ↓
-用户浏览活动
-    ↓
-用户领取门票
-    ↓
-创建 ChainPass
-    ↓
-链上 Mint / 建立 Token 身份
-    ↓
-Pass 归属于当前用户
-    ↓
-用户在 My Passes 查看门票
-    ↓
-现场展示 Pass / 二维码
-    ↓
-商家核验门票
-    ↓
-确认 Check-in
-    ↓
-Pass 状态变更为已核销
-    ↓
-商家后台 / 实时数据同步更新
+商家创建 DRAFT → 创建 ACTIVE 票种 → 发布
+→ 分享票种邀请（默认）/ 显式公开
+→ 用户登录并 Claim → 独立 ACTIVE Pass
+→ 可选 Wallet challenge/verify → issuer Mint
+→ 动态 QR → 商家 Verify → 确认 Check-in
+→ CHECKED_IN → 用户刷新后看到状态
 ```
 
-这条流程是当前项目的最高优先级。
+### 邀请制
+
+新建默认 INVITE_ONLY，历史活动保持 PUBLIC。发布只改变 DRAFT/PUBLISHED，不改变公开范围。邀请绑定一个票种，持链接者可转发领取，受 quota/expiry/revocation 限制；不提供绑定指定用户的实名邀约。
+
+每个用户对同一票种只能领取一次。邀请次数、库存和 Pass 创建同事务。撤销邀请不撤销已发 Pass；多个邀请绑定同票种会共享库存。
+
+### 资产与业务状态
+
+数据库是活动、价格/库存、邀请、领取和核销的事实来源。Ethereum Sepolia 上的不可转让 ERC-721 提供 token identity、钱包 owner 和 Pass hash 对应。Mint 可选，由平台 issuer 付 gas；入场无需钱包，核销不上链、不 burn Token。
+
+票种 price 目前是元数据，不等于已收款。连接钱包不等于已验证绑定；Mint 页面展示应用确认后的链上字段，不模拟交易。
+
+### 客户端与视觉
+
+Web 与 Expo Mobile 均有 User/Merchant/Admin 工作区，共享 API/Schema/Web3，不共享 DOM/Native UI。视觉为 Dark-first Holographic Graphite + Future Boarding Pass，普通界面克制，关键 Pass/Mint 采用品牌强调。
+
+实验 Telegram、Discord、Extension、WeChat 只有工程入口，不算已完成客户端。Mobile 浏览器验收与原生设备验收分开，见[范围](docs/DEVELOPMENT_SCOPE.md#zh)。
+
+### 明确边界
+
+当前无支付/退款、转让/二级市场、活动编辑/删除接口、复杂 analytics、团队/多租户组织、钱包登录、自动合约重部署或应用商店发布。无生产 HTTPS；原生设备、异机备份/恢复、限流及 issuer 托管仍需后续验收/设计。
+
+优先继续完善可验证的闭环，而不是增加无消费者的平台抽象。实现细节见[技术说明](docs/TECHNICAL_DETAILS.md#zh)，工程规则见[架构](docs/ARCHITECTURE.md#zh)。
 
 ---
 
-# 4. Pass 的核心状态
+<a id="en"></a>
 
-第一阶段 Pass 至少需要支持：
+## English
+
+### Product
+
+ChainPass gives organizers a create/issue/admit flow and attendees a claim/hold/present experience. It is an integrated Web/Mobile/API/database/testnet hackathon system, not a payment platform or an all-on-chain workflow.
+
+### Roles
+
+Users own passes, view state, present QR and optionally bind/mint. Merchants manage only their events/tickets/invitations and admission. Admins manage user roles and platform events without self-service privileged registration. Anonymous visitors see PUBLIC + PUBLISHED events or preview one ticket through a valid invitation.
+
+Organizers cannot manage/check in others' events. API identity, ownership and business rules—not client role labels—are authoritative.
+
+### Flow and invitations
 
 ```text
-ACTIVE
-    ↓
-CHECKED_IN
+Merchant DRAFT → ACTIVE ticket → publish
+→ ticket-specific invitation (default) / explicitly public
+→ authenticated claim → independent ACTIVE Pass
+→ optional wallet challenge/verify and issuer mint
+→ rotating QR → verify → explicit check-in
+→ CHECKED_IN → attendee refresh
 ```
 
-同时预留：
+New events default INVITE_ONLY; legacy events remain PUBLIC. Publication does not change visibility. Forwardable invitations select a ticket and enforce quota/expiry/revocation, not named-user eligibility. Each user claims a ticket once; invitation quota, inventory and Pass creation are atomic. Revocation preserves existing passes; links for the same ticket share stock.
 
-```text
-REVOKED
-```
+### Business versus chain
 
-含义：
+The database owns content/prices/stock/invitations/claim/admission. Ethereum Sepolia non-transferable ERC-721 supplies identity, wallet owner and Pass-hash mapping. Mint is optional and issuer-funded; off-chain admission needs no wallet and does not burn a token.
 
-- `ACTIVE`：门票有效，可以正常核验
-- `CHECKED_IN`：已经完成核销，不可重复使用
-- `REVOKED`：门票已被撤销
+Price is metadata, not payment. Connected wallets still need signature binding. UI displays confirmed API evidence, not simulated transactions.
 
-同一张票不得重复核销。
+### Clients and limits
 
----
+Web/Expo have User/Merchant/Admin workspaces with shared API/schema/Web3, platform-local UI and dark-first Holographic Graphite/Future Boarding Pass. Telegram/Discord/Extension/WeChat are scaffolds only; browser/native acceptance differs.
 
-# 5. 区块链职责
+Not implemented: payments/refunds, transfer/marketplace, event edit/delete API, complex analytics/teams, wallet login, auto contract redeploy or app-store delivery. Production HTTPS, physical-device acceptance, off-host backup/restore, rate limiting and issuer custody remain further work.
 
-Blockchain 是 ChainPass 的可信资产层，而不是完整业务数据库。
-
-区块链主要负责：
-
-- Pass 的唯一链上身份
-- Token ID
-- Pass 的发行
-- Ownership
-- Pass 与用户钱包之间的归属关系
-- 必要的链上验证信息
-- 关键状态的可信记录
-
-典型链上信息：
-
-```text
-Event
-Token ID
-Issuer
-Owner
-Contract Address
-Transaction Hash
-Status / Verification Data
-```
-
----
-
-# 6. 不上链的数据
-
-普通业务信息仍然由后端和 PostgreSQL 管理。
-
-例如：
-
-- 用户昵称
-- 用户资料
-- 活动描述
-- 活动图片
-- 商家资料
-- 领取记录
-- 核销操作详情
-- 核销时间
-- 统计数据
-- Dashboard 数据
-
-原则：
-
-**Blockchain 负责身份、Ownership 和可信验证；Backend 负责完整业务。**
-
-不得为了“使用区块链”而将所有业务数据强行写入链上。
-
----
-
-# 7. 三端与技术职责
-
-## Web
-
-主要服务：
-
-- A 端管理员
-- B 端商家 / 活动主办方
-
-承担：
-
-```text
-Admin
-Merchant Dashboard
-Event Management
-Ticket Management
-Check-in
-Statistics
-Live Dashboard
-```
-
----
-
-## Mobile
-
-主要服务 C 端用户，同时可以承担部分现场核销能力。
-
-承担：
-
-```text
-Discover
-My Passes
-Pass Detail
-QR Code
-Scanner
-Wallet / Web3
-Profile
-```
-
-React Native 同时覆盖 iOS 和 Android。
-
----
-
-## Backend
-
-Backend 是 ChainPass 的业务核心。
-
-负责：
-
-```text
-Auth
-User
-Merchant
-Event
-Ticket
-Pass
-Claim
-Check-in
-Blockchain Integration
-Statistics
-Realtime Events
-```
-
----
-
-## Smart Contract
-
-智能合约负责数字 Pass 的链上能力。
-
-第一阶段重点：
-
-```text
-Event / Issuer
-Mint Pass
-Token Identity
-Ownership
-Verification
-```
-
-合约应保持简单，不在第一阶段设计复杂 Token 经济系统。
-
----
-
-# 8. 三天 MVP
-
-本次 Hackathon 的目标不是完成一个大型票务平台，而是完成一条真正可运行的端到端链路。
-
-必须优先完成：
-
-1. 商家创建活动
-2. 商家设置票数
-3. 发布活动
-4. 用户查看活动
-5. 用户领取 Pass
-6. Pass 创建数据库记录
-7. Pass 完成链上 Mint
-8. 用户查看 My Pass
-9. 用户展示门票
-10. 商家核验 / 核销
-11. 防止重复核销
-12. 核销后状态实时更新
-13. 可以查看基本链上验证信息
-
-如果以上主流程没有完整跑通，不优先增加外围功能。
-
----
-
-# 9. 当前非目标
-
-第一阶段暂不重点实现：
-
-- NFT Marketplace
-- Token 交易市场
-- DeFi
-- DAO
-- 复杂 Token Economics
-- 虚拟货币支付
-- 二级票务市场
-- 黄牛治理系统
-- 复杂退款体系
-- 复杂座位系统
-- 多级代理商体系
-- 推荐系统
-- AI 功能
-- 元宇宙
-- 数字孪生
-- 社交系统
-- 大型微服务架构
-
-除非核心业务已经完整完成，否则不要自行加入这些功能。
-
----
-
-# 10. 产品核心原则
-
-ChainPass 的第一阶段始终遵循以下原则：
-
-### 1. 业务优先
-
-不是为了展示区块链而设计业务。
-
-### 2. 链上做可信层
-
-Blockchain 负责身份、Ownership 和验证，而不是承担整个后端。
-
-### 3. 保持主流程简单
-
-核心始终是：
-
-**创建活动 → 发行门票 → 领取 → Mint → 持有 → 核验 → 核销。**
-
-### 4. Web / Mobile 各司其职
-
-Web 更偏平台和商家管理。
-
-Mobile 更偏用户持票和现场交互。
-
-### 5. MVP 优先
-
-本次开发周期较短，优先完成真正可演示、可运行的完整闭环，而不是堆积大量未完成的功能。
-
----
-
-# 11. 一句话定义
-
-> **ChainPass 是一个链上数字票务与核销平台：商家创建活动并发行数字门票，用户领取后获得具有唯一链上身份的 Pass，并可以在活动现场完成核验和核销。**
-
----
-
-# 12. 当前核心业务主链
-
-任何 AI 或开发者在新增功能前，应首先确认该需求是否服务于以下主链：
-
-```text
-Create Event
-    ↓
-Issue Tickets
-    ↓
-Claim Pass
-    ↓
-Mint On-chain
-    ↓
-Own Pass
-    ↓
-Verify Pass
-    ↓
-Check-in
-```
-
-如果功能与这条主链没有直接关系，在当前 MVP 阶段默认降低优先级。
+See [scope](docs/DEVELOPMENT_SCOPE.md#en), [internals](docs/TECHNICAL_DETAILS.md#en) and [architecture](docs/ARCHITECTURE.md#en).

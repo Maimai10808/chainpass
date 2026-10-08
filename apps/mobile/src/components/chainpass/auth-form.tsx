@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { router, Link, type Href, useLocalSearchParams } from "expo-router";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { View, Text } from "react-native";
 import { authClient, signIn, signUp, useSession } from "@/lib/auth-client";
-import { authDestination, getRole } from "@/lib/product";
+import { authDestination, getRole, type Role } from "@/lib/product";
 import { triggerHaptic } from "@/design";
 import {
   Screen,
@@ -18,7 +18,7 @@ import {
 } from "./ui";
 export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
-  const { data: session } = useSession();
+  const { data: session, isPending } = useSession();
   const client = useQueryClient();
   const [form, setForm] = useState({
     name: "",
@@ -29,6 +29,25 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [authenticated, setAuthenticated] = useState<{
+    id: string;
+    role: Role;
+  } | null>(null);
+  const navigated = useRef(false);
+  useEffect(() => {
+    // A fresh getSession response can arrive before useSession publishes it.
+    // Wait for the same verified identity before entering a protected route.
+    if (
+      authenticated &&
+      !isPending &&
+      session?.user.id === authenticated.id &&
+      getRole(session.user) === authenticated.role &&
+      !navigated.current
+    ) {
+      navigated.current = true;
+      router.replace(authDestination(authenticated.role, returnTo) as Href);
+    }
+  }, [authenticated, isPending, session, returnTo]);
   const signup = mode === "sign-up";
   const set = (field: keyof typeof form, value: string) =>
     setForm((current) => ({ ...current, [field]: value }));
@@ -48,6 +67,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
     }
     setBusy(true);
     setError("");
+    navigated.current = false;
     try {
       const result = signup
         ? await signUp.email({ name: form.name.trim(), ...valid.data })
@@ -73,9 +93,10 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
       }
       client.removeQueries({ queryKey: ["private"] });
       void triggerHaptic("success");
-      router.replace(
-        authDestination(getRole(fresh.data?.user), returnTo) as Href,
-      );
+      setAuthenticated({
+        id: fresh.data.user.id,
+        role: getRole(fresh.data.user),
+      });
     } catch {
       setError("Network unavailable. Check your connection and try again.");
     } finally {

@@ -44,15 +44,15 @@ Check-in
 - Merchant Verify / Check-in Vertical Slice：Event Ownership 核验、只读 Pass Verify、原子 CheckIn、防并发重复核销与 Merchant Web 操作页。
 - Dynamic QR Verification Vertical Slice：短时 HMAC Credential、用户动态 QR、Merchant 摄像头扫描，以及复用既有 Verify/Check-in。
 - Web 产品界面：正式 Auth、统一角色导航、公开首页/活动、User Pass 票面与钱包/Mint/QR、Merchant Dashboard/活动/核销、Admin Dashboard/用户提升 Merchant/平台活动。数据来自现有 API 与最小受限活动列表接口；无支付、活动编辑/删除、Admin 自助注册或复杂统计。
-- Invitation-only Claim（Web-first）：新建活动默认邀请制，可显式公开；历史活动保持 PUBLIC。商家为已发布活动创建可转发、绑定具体票种、限次数且有有效期的邀请，并可撤销。用户经邀请预览、登录/注册返回后复用现有 Claim；邀请次数、库存与 Pass 创建同事务，已领取 Pass 继续使用原 Mint/QR/Check-in。详见 [API_CONTRACT.md](./API_CONTRACT.md)。
-- Mobile User Experience Vertical Slice：Better Auth Expo/SecureStore 登录、公开活动浏览、Claim、My Passes、Pass Detail 与动态 QR 展示。
+- Invitation-only Claim（Web / Mobile）：新建活动默认邀请制，可显式公开；历史活动保持 PUBLIC。商家为已发布活动创建可转发、绑定具体票种、限次数且有有效期的邀请，并可撤销。用户经邀请预览、登录/注册返回后复用现有 Claim；邀请次数、库存与 Pass 创建同事务，已领取 Pass 继续使用原 Mint/QR/Check-in。Mobile 增加粘贴链接/安装深链入口、SecureStore 暂存与原生分享，不新增服务端规则。详见 [API_CONTRACT.md](./API_CONTRACT.md)。
+- Mobile 角色体验：Better Auth Expo/SecureStore 登录、公开活动/邀请 Claim、My Passes、Wallet/Mint、动态 QR，以及消费既有 API 的 Merchant/Admin 工作区。代码实现与原生设备验收分开记录，见 [Mobile README](../apps/mobile/README.md)。
 - Production Deployment Artifacts：Web/API production image、Nginx same-origin routing、PostgreSQL persistence/health、Prisma deploy migration 与单服务器操作文档。
 - Huawei Cloud Production / CI/CD：HTTP 单服务器部署、main/develop CI 与人工触发的 GitHub Production Deploy 已有成功记录；生产四容器健康、数据库连接与公网入口已只读复核。具体 release、尚未进入 main 的 workflow 加固与配置漂移见 [DEPLOYMENT.md](./DEPLOYMENT.md)，不能把健康检查视为所有生产业务已验收。
 
 尚未实现或尚未接通：
 
-- Mobile Merchant Scanner、Wallet Binding 与 Mint 操作；
-- Mobile 原生邀请链接入口与邀请领取 UI（已有 Pass 展示/QR 和公开活动 Claim 不受影响）；
+- Mobile 相机、haptics、外部钱包跳转、系统分享、SecureStore 重启恢复和安装深链的 iOS/Android 真机验收；
+- HTTPS Universal Links / Android App Links（当前只提供自定义 scheme 与粘贴邀请链接）；
 - 域名 DNS、HTTPS / Camera secure-context 验收，异机备份/恢复演练与生产浏览器 Wallet 全链路验收；
 
 因此后续任务应以完成 Vertical Slice 为目标，不能把骨架目录视为已交付能力。

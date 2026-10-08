@@ -15,7 +15,8 @@ production reverse proxy are covered by regression tests.
 
 - `EXPO_PUBLIC_REOWN_PROJECT_ID`: real public Reown project ID for wallet connection.
   Missing configuration disables connection, not browsing, claiming or QR entry.
-- `EXPO_PUBLIC_APP_URL`: public application origin shown by wallet apps.
+- `EXPO_PUBLIC_APP_URL`: public Web origin for shared invitation links and wallet
+  metadata. Set the real origin; do not put an API `/api` URL here.
 - Chain configuration and explorer helpers come from `@chainpass/web3`;
   Ethereum Sepolia, chain ID `11155111`. Do not introduce a second chain.
 - No database, issuer, Better Auth or QR signing secrets belong in this app.
@@ -47,12 +48,13 @@ src/app/
   _layout                         session restoration, providers, Native Stack
   (tabs)/                         User: Discover / My Passes / Profile
   auth/sign-in, auth/sign-up       native forms, user-only registration
+  invite                          anonymous invitation preview / auth / Claim
   events/[eventId]                 public event / Claim / Open Pass
   my-passes/[passId]               holographic pass / QR / Wallet / Mint
   merchant/_layout                merchant/admin route gate, Native Stack
     (tabs)/                       Overview / Events / Check-in / Profile
     events/new                    native date/time form
-    events/[eventId]              tickets, creation sheet, publish confirmation
+    events/[eventId]              tickets, publish, invitation creation/share/revoke
   admin/_layout                   admin-only gate, Native Stack
     (tabs)/                       Overview / Users / Events / Profile
 ```
@@ -84,6 +86,38 @@ once expired. Screen blur/background stops timers and clears the credential;
 foreground revalidates it. Pass detail polls status every five seconds only while
 focused and foregrounded. CHECKED_IN/REVOKED never displays a usable QR.
 
+## Invitation-only events
+
+New Merchant drafts default to `INVITE_ONLY`; the creation screen also offers
+`PUBLIC`. Only published public events appear in Discover. Publish a private
+event with an active ticket type, then create an invitation with a claim limit
+and future expiry on its management screen. Native sharing sends the Web link
+`<EXPO_PUBLIC_APP_URL>/invite#token=…`; the optional installed-app link is
+`chainpass://invite#token=…`. The server returns the raw credential only once.
+Save/share it before leaving the screen; lists contain counts and expiry, not
+recoverable tokens. Revoking a link stops new claims, not existing passes.
+
+Attendees can open an installed-app link or choose **Open invitation** in
+Discover and paste the complete Web link. The app extracts the credential; it
+does not request arbitrary pasted URLs. Preview shows only the designated
+ticket. Sign-in/sign-up return to `/invite`, then the existing claim API creates
+an independent Pass and opens its existing detail/QR screen. A forwardable link
+does not grant access to other private events or ticket types.
+
+The pending credential is separate from Better Auth: native SecureStore (Web
+preview uses tab sessionStorage), limited to 30 minutes or the known server
+expiry, whichever comes first. A new link replaces it; malformed links cannot
+fall back to an old invitation. Successful claim, explicit clear, sign-out,
+account/role change, expiry, revocation and exhausted quota clear the handoff.
+If secure persistence fails, the current in-memory handoff still works with a
+visible warning. The server remains the authority for eligibility and stock;
+preview does not reserve inventory. No credential is in auth `returnTo` or a
+query cache key. Focus/background gates preview refresh and expiry timers.
+
+Custom-scheme links require an installed development/production build. HTTPS
+Universal Links / Android App Links and automatic Web-to-app routing are not
+configured; Expo Go and browser preview do not prove native deep-link delivery.
+
 ## On-site operations
 
 `expo-camera` scans QR only. Camera mounts only during an active scan on the
@@ -112,7 +146,9 @@ pnpm --filter mobile exec expo install --check
 
 Pure tests cover role destinations, redirect attacks, private cache isolation,
 QR expiry, camera lifecycle, check-in guards and wallet/network state, alongside
-the existing foundation contrast/motion tests. Metro pins Valtio resolution to
+the existing foundation contrast/motion tests. Invitation tests cover link
+validation, cold restore, retention, storage failures and replacement races.
+Metro pins Valtio resolution to
 the native Reown SDK's instance: controllers and subscriptions must share one
 proxy registry. This is Mobile-only, not a workspace dependency override.
 
@@ -157,3 +193,29 @@ Expo Doctor passed
 verification in a native development build. Expo enables autolinking module
 resolution for this monorepo, but a successful Hermes export does not prove a
 native build is free from linking conflicts.
+
+## Invitation validation record (2026-10-08)
+
+Expo Web preview against the real local API and Docker PostgreSQL passed the
+Merchant draft → active ticket → publish → create/list invitation flow. Private
+events stayed out of public discovery, and preview exposed only the designated
+ticket. Pasted links and direct fragment links restored after a tab reload;
+sign-in and registration returned to `/invite` without a credential in the auth
+URL. Separate attendees received separate Passes through the existing claim API.
+
+The issued Pass generated the existing QR credential; Merchant API verification
+and explicit QR check-in succeeded, replay returned ALREADY_CHECKED_IN, and the
+reloaded Mobile screen showed CHECKED_IN without a usable QR. Revocation blocked
+new invitation preview, cleared the handoff and preserved already issued Passes.
+User, Merchant and Admin login destinations, browser session restoration and
+sign-out cleanup also passed against the real API.
+The explicitly named local acceptance fixtures remain available for inspection.
+No chain transaction was sent by this invitation test.
+
+Mobile lint/typecheck and 25 pure tests passed. The isolated PostgreSQL API E2E
+suite passed 93 tests with one opt-in blockchain integration test skipped;
+files were run serially after a parallel run encountered assertion timeouts
+during simultaneous exports/builds. Workspace lint/typecheck/test/build and
+iOS/Android Hermes exports passed. The native acceptance checklist above is
+still required: browser preview does not validate system sharing, SecureStore
+after process restart, or delivery of `chainpass://` links on iOS/Android.

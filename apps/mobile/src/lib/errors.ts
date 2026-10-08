@@ -2,6 +2,17 @@ import { ApiClientError } from "@chainpass/api-client";
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiClientError) {
     const messages: Record<string, string> = {
+      INVITATION_REQUIRED:
+        "Open the organizer's invitation link to claim this ticket.",
+      INVALID_INVITATION:
+        "Invalid invitation. Ask the organizer for a complete link.",
+      INVITATION_EXPIRED:
+        "This invitation expired. Ask the organizer for a new link.",
+      INVITATION_REVOKED:
+        "The organizer revoked this invitation. Already issued passes remain valid.",
+      INVITATION_EXHAUSTED: "This invitation has reached its claim limit.",
+      INVITATION_UNAVAILABLE: "This invitation is no longer available.",
+      INVITATION_NOT_FOUND: "This invitation is no longer available.",
       PASS_ALREADY_CLAIMED:
         "You already have this ticket type. Open My Passes.",
       TICKET_TYPE_SOLD_OUT: "This ticket type has sold out.",

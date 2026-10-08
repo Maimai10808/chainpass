@@ -12,7 +12,7 @@
 - Better Auth 已接入 API、Web 与 Mobile；Prisma 在唯一的 Better Auth `User` 上关联 Event、Pass、一个已验证 Wallet 及短期 Wallet Challenge。
 - API 已实现 Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Blockchain Mint、Merchant Verify/Check-in 与短时动态 QR Credential，并在 `/docs` 与 `/docs/openapi.json` 暴露 Swagger/OpenAPI Contract。
 - Web 采用统一 Holographic Graphite App Shell，包含正式登录/注册、首页/活动浏览、User 持票/钱包绑定/Mint/QR、Merchant 工作区与 Admin 用户/活动管理。业务能力通过共享 Client 与 React Query 连接真实 API，不使用模拟业务数据。
-- Mobile 已实现 Better Auth 登录注册、公开活动列表/详情、Claim、My Passes、Pass Detail 与服务端签发的动态 QR；Merchant Scanner、Wallet Binding 和 Mint 操作仍只在 Web 提供。
+- Mobile 已实现 Better Auth 登录注册、角色工作区、公开活动列表/详情、Claim、My Passes、Wallet Binding/Mint 与动态 QR，并消费现有 Merchant/Admin API；新增原生邀请预览、领取及 Merchant 邀请管理入口。原生相机、分享、钱包跳转与安装深链验收不能用 Metro export 代替。
 - `@chainpass/api-client` 与 `@chainpass/schemas` 承载业务边界；`@chainpass/web3` 共享实际合约 ABI、Ethereum Sepolia 配置、地址规范化和 Pass Hash 规则。
 - Solidity `ChainPass` 是 issuer-only、non-transferable ERC-721，按 database Pass hash 防重复 Mint；当前版本已部署至 Ethereum Sepolia，公开地址与广播记录见 `contracts/deployments/sepolia.json`。
 - `infra/docker-compose.yml` 启动本地 PostgreSQL；生产 Compose 已在华为云 ECS 运行，system Nginx `:80` 代理 loopback Docker Nginx `:18081`，Web/API/PostgreSQL 无 host-port 映射。GitHub CI 与人工触发的 Production Deploy 已有成功运行；当前 release、分支差异与运行记录见 [DEPLOYMENT.md](./DEPLOYMENT.md)，日常操作见 [OPERATIONS.md](./OPERATIONS.md)。
@@ -104,10 +104,11 @@ Feature-specific DTO 留在各 Feature 内；只有被多个 Feature 实际复�
 - Better Auth Expo Client 身份体验；
 - 展示 API 返回的链上状态与共享 Explorer 链接；
 - 消费与 Web 相同的业务 API Contract。
+- Merchant 活动/票种/邀请管理与既有核验核销、Admin 用户及活动工作区；权限最终由 API 控制。
 
 Mobile 不实现服务端业务规则，不导入 NestJS/Prisma 实现。修改 Mobile 前同时遵守 `apps/mobile/AGENTS.md`。
 
-Mobile 使用 Expo Router Native Tabs 提供 Discover、My Passes 与 Profile 三个主入口。TanStack Query 的稳定 key 为 `events`、`event/:id`、`my-passes` 与 `pass-verification-token/:id`；Claim 后刷新 Event Detail 与 My Passes，App 回到 foreground 时重新校验列表和动态 QR。QR payload 始终来自 API，Mobile 不持有签名 Secret。
+Mobile 使用 Expo Router 按服务端角色提供 User / Merchant / Admin 工作区。TanStack Query key 集中在 `apps/mobile/src/lib/product.ts`，私有查询包含用户 ID；身份改变清除私有 cache，Claim 后刷新 My Passes。App 回到 foreground 时重新校验列表和动态 QR，QR payload 始终来自 API，Mobile 不持有签名 Secret。原生能力与已验证边界见 [Mobile README](../apps/mobile/README.md)。
 
 ## 4. Packages 职责
 
@@ -160,7 +161,7 @@ PostgreSQL
 
 邀请链接与现场 QR 是两个独立阶段：`Event.accessMode` 区分 PUBLIC / INVITE_ONLY，新 API 创建默认邀请制，历史 Event 在 migration 中保留 PUBLIC。邀请制活动发布后仍不进入公开列表，裸 Event ID 也无法访问公开详情。Merchant 为自己的已发布活动创建绑定一个票种的 `Invitation`（次数上限、有效期、撤销状态），数据库只存 32 字节随机 token 的 SHA-256 hash。持有效链接的人可匿名预览，登录后由现有 Pass Claim Service 在一个事务中消费邀请次数、扣库存并创建独立 Pass；失败全部回滚，Pass 通过 nullable `invitationId` 保留来源。邀请撤销不撤销已领取的 Pass，也不改变链上 Mint / QR / Check-in 逻辑。
 
-Web 分享 `/invite#token=...`，凭证不进入路径、query、登录 `next` 或 Query cache key，API 接收 POST body，响应禁止共享缓存。Auth 往返只用当前 tab 的 sessionStorage 暂存凭证，成功领取后删除；邀请页不索引且不发送 referrer。链接可转发，并不证明受邀人的实名身份；本版本没有专门的邀请 endpoint rate limiting，长期运行前仍需评估滥用防护。Mobile 继续消费共享 Contract；原生邀请 deep link/领取入口不在这一版 Web-first 范围内。
+Web 分享 `/invite#token=...`，凭证不进入路径、query、登录 `next` 或 Query cache key，API 接收 POST body，响应禁止共享缓存。Web Auth 往返只用当前 tab 的 sessionStorage 暂存凭证，成功领取后删除；邀请页不索引且不发送 referrer。Mobile 复用同一 Contract，可粘贴 Web 链接或打开 `chainpass://invite#token=...`；登录往返只传 `/invite`，凭证在独立 SecureStore 中短期暂存（最长 30 分钟或已知 expiry）。领取成功、退出/切换身份及失效会清除。分享通过原生 Share，未配置 HTTPS Universal Links / App Links。链接可转发，并不证明受邀人的实名身份；本版本没有专门的邀请 endpoint rate limiting，长期运行前仍需评估滥用防护。
 
 Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Mint、Merchant Verify/Check-in 与 Mobile User Experience 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
 

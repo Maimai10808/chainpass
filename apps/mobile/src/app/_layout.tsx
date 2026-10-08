@@ -48,6 +48,10 @@ export default function RootLayout() {
                 />
                 <Stack.Screen name="admin" options={{ headerShown: false }} />
                 <Stack.Screen
+                  name="invite"
+                  options={{ title: "Your invitation" }}
+                />
+                <Stack.Screen
                   name="events/[eventId]"
                   options={{ title: "Event" }}
                 />

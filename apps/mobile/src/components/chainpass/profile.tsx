@@ -18,6 +18,7 @@ import {
   text,
 } from "./ui";
 import { WalletPanel } from "./wallet-panel";
+import { pendingInvitation } from "@/lib/pending-invitation";
 export function Profile() {
   const { data: session } = useSession();
   const client = useQueryClient();
@@ -31,6 +32,7 @@ export function Profile() {
       const result = await signOut();
       if (result.error) throw new Error("Sign out failed");
       client.clear();
+      await pendingInvitation.clear();
       await walletKit?.disconnect().catch(() => {});
       router.replace("/");
     } catch {

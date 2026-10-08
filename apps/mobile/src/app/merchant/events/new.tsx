@@ -15,6 +15,7 @@ import {
   Field,
   Feedback,
   ActionButton,
+  FilterBar,
   text,
 } from "@/components/chainpass/ui";
 import { DateField } from "@/components/chainpass/date-field";
@@ -30,6 +31,9 @@ export default function CreateEvent() {
   const [startsAt, setStart] = useState(() => new Date(Date.now() + 86400000));
   const [endsAt, setEnd] = useState(() => new Date(Date.now() + 90000000));
   const [validation, setValidation] = useState("");
+  const [accessMode, setAccessMode] = useState<"INVITE_ONLY" | "PUBLIC">(
+    "INVITE_ONLY",
+  );
   const create = useMutation({
     mutationFn: apiClient.createEvent,
     onSuccess: (event) => {
@@ -49,6 +53,7 @@ export default function CreateEvent() {
   function submit() {
     const result = createEventInputSchema.safeParse({
       name: form.name.trim(),
+      accessMode,
       ...(form.description.trim()
         ? { description: form.description.trim() }
         : {}),
@@ -76,6 +81,19 @@ export default function CreateEvent() {
         description="Start with a draft. Add tickets and publish when everything is ready."
       />
       <Card>
+        <Text style={text.label}>Who can discover and claim?</Text>
+        <FilterBar
+          values={["Invitation only", "Public"]}
+          value={accessMode === "INVITE_ONLY" ? "Invitation only" : "Public"}
+          onChange={(value) =>
+            setAccessMode(value === "Public" ? "PUBLIC" : "INVITE_ONLY")
+          }
+        />
+        <Text style={text.body}>
+          {accessMode === "INVITE_ONLY"
+            ? "Not listed in Discover. After publishing, create and share an invitation for a specific ticket type."
+            : "Published events appear in Discover and can be viewed by everyone."}
+        </Text>
         {(["name", "description", "location", "coverImageUrl"] as const).map(
           (field) => (
             <Field

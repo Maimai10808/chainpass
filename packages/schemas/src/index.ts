@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const eventStatusSchema = z.enum(["DRAFT", "PUBLISHED"]);
+export const eventAccessModeSchema = z.enum(["PUBLIC", "INVITE_ONLY"]);
 export const ticketTypeStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);
 
 export const createEventInputSchema = z
@@ -11,6 +12,7 @@ export const createEventInputSchema = z
     location: z.string().trim().max(500).optional(),
     startsAt: z.iso.datetime({ offset: true }),
     endsAt: z.iso.datetime({ offset: true }),
+    accessMode: eventAccessModeSchema.optional(),
   })
   .strict()
   .refine((event) => new Date(event.endsAt) > new Date(event.startsAt), {
@@ -28,6 +30,7 @@ export const eventResponseSchema = z
     startsAt: z.iso.datetime({ offset: true }),
     endsAt: z.iso.datetime({ offset: true }),
     status: eventStatusSchema,
+    accessMode: eventAccessModeSchema,
     organizerId: z.string(),
     createdAt: z.iso.datetime({ offset: true }),
     updatedAt: z.iso.datetime({ offset: true }),
@@ -106,6 +109,60 @@ export const publicEventDetailSchema = publicEventSummarySchema.extend({
 });
 
 export const publicEventListSchema = z.array(publicEventSummarySchema);
+
+export const invitationTokenSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{43}$/, "Invalid invitation credential");
+export const createInvitationInputSchema = z
+  .object({
+    ticketTypeId: z.string().min(1),
+    maxUses: z.number().int().positive().max(2_147_483_647),
+    expiresAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+export const resolveInvitationInputSchema = z
+  .object({ token: invitationTokenSchema })
+  .strict();
+export const claimPassInputSchema = z
+  .object({ invitationToken: invitationTokenSchema.optional() })
+  .strict();
+export const invitationViewSchema = z
+  .object({
+    id: z.string(),
+    ticketTypeId: z.string(),
+    ticketTypeName: z.string(),
+    maxUses: z.number().int().positive(),
+    usedCount: z.number().int().nonnegative(),
+    expiresAt: z.iso.datetime({ offset: true }),
+    revokedAt: z.iso.datetime({ offset: true }).nullable(),
+    createdAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+export const invitationListSchema = z.array(invitationViewSchema);
+export const createInvitationResponseSchema = z
+  .object({
+    invitation: invitationViewSchema,
+    token: invitationTokenSchema,
+  })
+  .strict();
+export const invitationPreviewSchema = z
+  .object({
+    event: publicEventSummarySchema.extend({
+      organizer: z.object({ name: z.string() }).strict(),
+    }),
+    ticketType: publicTicketTypeSchema,
+    expiresAt: z.iso.datetime({ offset: true }),
+    remainingUses: z.number().int().nonnegative(),
+  })
+  .strict();
+export const invitationErrorSchema = z.enum([
+  "INVITATION_REQUIRED",
+  "INVALID_INVITATION",
+  "INVITATION_EXPIRED",
+  "INVITATION_REVOKED",
+  "INVITATION_EXHAUSTED",
+  "INVITATION_UNAVAILABLE",
+]);
 
 export const passStatusSchema = z.enum(["ACTIVE", "CHECKED_IN", "REVOKED"]);
 export const onChainStatusSchema = z.enum(["OFF_CHAIN", "ON_CHAIN_VERIFIED"]);
@@ -315,6 +372,18 @@ export type CreateEventInput = z.infer<typeof createEventInputSchema>;
 export type EventResponse = z.infer<typeof eventResponseSchema>;
 export type ManagedEventSummary = z.infer<typeof managedEventSummarySchema>;
 export type EventStatus = z.infer<typeof eventStatusSchema>;
+export type EventAccessMode = z.infer<typeof eventAccessModeSchema>;
+export type CreateInvitationInput = z.infer<typeof createInvitationInputSchema>;
+export type ResolveInvitationInput = z.infer<
+  typeof resolveInvitationInputSchema
+>;
+export type ClaimPassInput = z.infer<typeof claimPassInputSchema>;
+export type InvitationView = z.infer<typeof invitationViewSchema>;
+export type CreateInvitationResponse = z.infer<
+  typeof createInvitationResponseSchema
+>;
+export type InvitationPreview = z.infer<typeof invitationPreviewSchema>;
+export type InvitationError = z.infer<typeof invitationErrorSchema>;
 export type CreateTicketTypeInput = z.infer<typeof createTicketTypeInputSchema>;
 export type TicketTypeResponse = z.infer<typeof ticketTypeResponseSchema>;
 export type TicketTypeStatus = z.infer<typeof ticketTypeStatusSchema>;

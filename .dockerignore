@@ -20,6 +20,11 @@ coverage
 
 # Production Web/API images do not consume these workspace areas.
 apps/mobile
+apps/telegram-mini
+apps/telegram-bot
+apps/extension
+apps/discord-bot
+apps/wechat-mini
 contracts
 docs
 infra
@@ -36,3 +41,10 @@ infra
 .DS_Store
 Docker.raw
 Docker.qcow2
+
+build
+**/build
+.output
+**/.output
+.wxt
+**/.wxt

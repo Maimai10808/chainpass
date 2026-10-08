@@ -1,5 +1,18 @@
 import {
   createEventInputSchema,
+  createInvitationInputSchema,
+  createInvitationResponseSchema,
+  invitationListSchema,
+  invitationViewSchema,
+  invitationPreviewSchema,
+  resolveInvitationInputSchema,
+  claimPassInputSchema,
+  type CreateInvitationInput,
+  type CreateInvitationResponse,
+  type InvitationView,
+  type InvitationPreview,
+  type ResolveInvitationInput,
+  type ClaimPassInput,
   createTicketTypeInputSchema,
   createWalletChallengeInputSchema,
   checkInInputSchema,
@@ -149,12 +162,70 @@ export function createApiClient(options: ChainPassApiClientOptions) {
       return publicEventDetailSchema.parse(await response.json());
     },
 
-    async claimPass(ticketTypeId: string): Promise<ClaimPassResult> {
+    async createInvitation(
+      eventId: string,
+      input: CreateInvitationInput,
+    ): Promise<CreateInvitationResponse> {
+      const payload = createInvitationInputSchema.parse(input);
+      const response = await fetcher(
+        `${baseUrl}/events/${encodeURIComponent(eventId)}/invitations`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          cache: "no-store",
+        },
+      );
+      if (!response.ok) throw await toApiClientError(response);
+      return createInvitationResponseSchema.parse(await response.json());
+    },
+
+    async listInvitations(eventId: string): Promise<InvitationView[]> {
+      const response = await fetcher(
+        `${baseUrl}/events/${encodeURIComponent(eventId)}/invitations`,
+        { credentials: "include", cache: "no-store" },
+      );
+      if (!response.ok) throw await toApiClientError(response);
+      return invitationListSchema.parse(await response.json());
+    },
+
+    async revokeInvitation(id: string): Promise<InvitationView> {
+      const response = await fetcher(
+        `${baseUrl}/invitations/${encodeURIComponent(id)}/revoke`,
+        { method: "POST", credentials: "include", cache: "no-store" },
+      );
+      if (!response.ok) throw await toApiClientError(response);
+      return invitationViewSchema.parse(await response.json());
+    },
+
+    async resolveInvitation(
+      input: ResolveInvitationInput,
+    ): Promise<InvitationPreview> {
+      const payload = resolveInvitationInputSchema.parse(input);
+      const response = await fetcher(`${baseUrl}/invitations/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+        referrerPolicy: "no-referrer",
+      });
+      if (!response.ok) throw await toApiClientError(response);
+      return invitationPreviewSchema.parse(await response.json());
+    },
+
+    async claimPass(
+      ticketTypeId: string,
+      input: ClaimPassInput = {},
+    ): Promise<ClaimPassResult> {
+      const payload = claimPassInputSchema.parse(input);
       const response = await fetcher(
         `${baseUrl}/ticket-types/${encodeURIComponent(ticketTypeId)}/claim`,
         {
           method: "POST",
           credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
         },
       );
 
@@ -384,6 +455,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export type {
+  EventAccessMode,
+  CreateInvitationInput,
+  CreateInvitationResponse,
+  InvitationView,
+  InvitationPreview,
+  ResolveInvitationInput,
+  ClaimPassInput,
   ManagedEventSummary,
   CreateEventInput,
   CreateTicketTypeInput,

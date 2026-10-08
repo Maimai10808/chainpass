@@ -9,6 +9,7 @@ import { keys } from "@/lib/product";
 import { errorMessage } from "@/lib/errors";
 import { formatEventDate, formatPrice } from "@/lib/format";
 import { triggerHaptic, getStatusTone } from "@/design";
+import { InvitationsPanel } from "@/components/chainpass/invitations-panel";
 import {
   Screen,
   Heading,
@@ -113,6 +114,14 @@ export default function ManageEvent() {
       />
       <Card>
         <StatusPill label={data.status} tone={getStatusTone(data.status)} />
+        <Fact
+          label="Access"
+          value={
+            data.accessMode === "INVITE_ONLY"
+              ? "Invitation only"
+              : "Public discovery"
+          }
+        />
         <Fact label="Starts" value={formatEventDate(data.startsAt)} />
         <Fact label="Ends" value={formatEventDate(data.endsAt)} />
         <Fact label="Location" value={data.location ?? "To be announced"} />
@@ -171,8 +180,10 @@ export default function ManageEvent() {
         <Card>
           <Text style={text.subheading}>Ready to open the doors?</Text>
           <Text style={text.body}>
-            Publishing makes this event visible to everyone. At least one active
-            ticket type is required. Only free tickets can currently be claimed.
+            {data.accessMode === "INVITE_ONLY"
+              ? "Publishing enables invitation creation. This event stays out of Discover; share a ticket-specific invitation with attendees."
+              : "Publishing makes this event visible in Discover."}{" "}
+            At least one active ticket type is required.
           </Text>
           <ActionButton
             disabled={!canPublish}
@@ -186,9 +197,22 @@ export default function ManageEvent() {
       ) : (
         <Feedback
           tone="success"
-          message="PUBLISHED — your event is visible in Discover."
+          message={
+            data.accessMode === "INVITE_ONLY"
+              ? "PUBLISHED — create an invitation below. This event is not publicly discoverable."
+              : "PUBLISHED — your event is visible in Discover."
+          }
         />
       )}
+      {data.status === "PUBLISHED" &&
+      data.accessMode === "INVITE_ONLY" &&
+      tickets.data ? (
+        <InvitationsPanel
+          key={`${uid}:${eventId}`}
+          eventId={eventId}
+          tickets={tickets.data}
+        />
+      ) : null}
       <Sheet
         visible={sheet === "ticket"}
         title="Create ticket type"
@@ -236,8 +260,10 @@ export default function ManageEvent() {
         }}
       >
         <Text style={text.body}>
-          People will be able to discover the event and claim available free
-          tickets. Event editing and deletion are not currently supported.
+          {data.accessMode === "INVITE_ONLY"
+            ? "Only attendees with a valid invitation can claim its designated ticket. Create an invitation after publishing."
+            : "People will be able to discover the event and claim available tickets."}{" "}
+          Event editing and deletion are not currently supported.
         </Text>
         {publish.isError && <Feedback message={errorMessage(publish.error)} />}
         <ActionButton

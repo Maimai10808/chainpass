@@ -30,6 +30,10 @@ test("server roles select one workspace; unknown roles never acquire privileges"
 });
 test("auth return paths enforce role boundaries and reject redirect/escape attacks", () => {
   assert.equal(p.authDestination("user", "/events/e1"), "/events/e1");
+  assert.equal(p.authDestination("user", "/invite"), "/invite");
+  assert.equal(p.authDestination("admin", "/invite"), "/invite");
+  assert.equal(p.authDestination("merchant", "/invite"), "/merchant");
+  assert.equal(p.authDestination("user", "/invite#token=secret"), "/");
   assert.equal(p.authDestination("user", "/my-passes/p1"), "/my-passes/p1");
   assert.equal(
     p.authDestination("admin", "/merchant/events/e1"),
@@ -59,7 +63,7 @@ test("all private query keys isolate the identity and the resource", () => {
     assert.equal(p.keys[method]("u1")[0], "private");
     assert.notDeepEqual(p.keys[method]("u1"), p.keys[method]("u2"));
   }
-  for (const method of ["qr", "tickets", "managedEvent"])
+  for (const method of ["qr", "tickets", "managedEvent", "invitations"])
     assert.notDeepEqual(p.keys[method]("u1", "p1"), p.keys[method]("u1", "p2"));
 });
 test("QR cannot be displayed when expired, backgrounded or no longer active", () => {

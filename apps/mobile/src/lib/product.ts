@@ -19,7 +19,9 @@ export function authDestination(role: Role, path?: string): string {
     return roleHome(role);
   const publicRoute = /^\/events\/[^/]+$/.test(path);
   const userRoute =
-    /^\/my-passes(?:\/[^/]+)?$/.test(path) || path === "/profile";
+    /^\/my-passes(?:\/[^/]+)?$/.test(path) ||
+    path === "/profile" ||
+    path === "/invite";
   const merchantRoute =
     /^\/merchant(?:\/events(?:\/[^/]+)?|\/check-in|\/profile)?$/.test(path);
   const adminRoute = /^\/admin(?:\/users|\/events|\/profile)?$/.test(path);
@@ -41,6 +43,8 @@ export const keys = {
     ["private", uid, "managed-event", id] as const,
   tickets: (uid: string, id: string) =>
     ["private", uid, "tickets", id] as const,
+  invitations: (uid: string, id: string) =>
+    ["private", uid, "invitations", id] as const,
   adminEvents: (uid: string) => ["private", uid, "admin-events"] as const,
   users: (uid: string) => ["private", uid, "users"] as const,
 };

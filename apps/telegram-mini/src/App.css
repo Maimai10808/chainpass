@@ -1,0 +1,27 @@
+.platform {
+  width: min(100% - 3rem, 36rem);
+  margin: 5rem auto;
+  padding: 2rem;
+  box-sizing: border-box;
+  border: 1px solid #252c3a;
+  border-radius: 1rem;
+  background: #0d1016;
+}
+
+.eyebrow {
+  color: #22d3ee;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+h1 {
+  margin-bottom: 0.5rem;
+}
+h2 {
+  font-size: 1.125rem;
+  font-weight: 500;
+}
+p {
+  color: #8f97a8;
+}

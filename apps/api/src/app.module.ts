@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module.js';
 import { PassesModule } from './passes/passes.module.js';
 import { TicketTypesModule } from './ticket-types/ticket-types.module.js';
 import { WalletsModule } from './wallets/wallets.module.js';
+import { InvitationsModule } from './invitations/invitations.module.js';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { WalletsModule } from './wallets/wallets.module.js';
     TicketTypesModule,
     PassesModule,
     WalletsModule,
+    InvitationsModule,
   ],
 })
 export class AppModule {}

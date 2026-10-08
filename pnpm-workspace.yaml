@@ -4,11 +4,18 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  '@parcel/watcher': true
   "@prisma/engines": false
   "@reown/appkit": false
   "@scarf/scarf": false
   '@shopify/react-native-skia': true
+  '@swc/core': true
+  '@tarojs/binding': true
+  '@tarojs/cli': true
   bufferutil: false
+  core-js: true
+  core-js-pure: true
+  esbuild: true
   keccak: false
   prisma: false
   unrs-resolver: false

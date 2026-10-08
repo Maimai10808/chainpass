@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { router } from "expo-router";
 import { FlatList, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
@@ -51,7 +52,12 @@ export default function Discover() {
         <View style={layoutStyles.section}>
           <Heading
             title="Go somewhere new."
-            description="Experiences worth showing up for. One pass, always with you."
+            description="Public experiences worth showing up for. Invitation-only events are accessed through your organizer's link."
+          />
+          <ActionButton
+            tone="secondary"
+            label="Have an invitation? Open link"
+            onPress={() => router.push("/invite")}
           />
           <Field
             label="Find an event"
@@ -75,7 +81,7 @@ export default function Discover() {
           description={
             search
               ? "Try a different name or location."
-              : "Published events will appear here."
+              : "Public published events appear here. Have an invitation? Use Open link above."
           }
         />
       }

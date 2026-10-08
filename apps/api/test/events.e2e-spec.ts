@@ -346,6 +346,7 @@ describe('Merchant create event', () => {
       .set('Cookie', cookie)
       .send({
         name,
+        accessMode: 'PUBLIC',
         startsAt: '2026-11-10T01:00:00.000Z',
         endsAt: '2026-11-10T09:00:00.000Z',
       })

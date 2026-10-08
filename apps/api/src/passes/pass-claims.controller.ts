@@ -6,6 +6,7 @@ import {
 } from '@thallesp/nestjs-better-auth';
 import {
   ApiBadRequestResponse,
+  ApiBody,
   ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
@@ -16,10 +17,13 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import type { ClaimPassResult } from '@chainpass/schemas';
+import type { ClaimPassInput, ClaimPassResult } from '@chainpass/schemas';
 
 import { auth } from '../auth/auth.js';
-import { ClaimPassBodyValidationPipe } from './dto/claim-pass-body.pipe.js';
+import {
+  ClaimPassDto,
+  ClaimPassBodyValidationPipe,
+} from './dto/claim-pass-body.pipe.js';
 import { ClaimPassResultDto } from './dto/pass-response.dto.js';
 import { PassesService } from './passes.service.js';
 
@@ -33,20 +37,27 @@ export class PassClaimsController {
   @UserHasPermission({ permission: { pass: ['claim'] } })
   @ApiOperation({ operationId: 'claimPass', summary: 'Claim a pass' })
   @ApiParam({ name: 'ticketTypeId', description: 'Ticket type ID' })
+  @ApiBody({ type: ClaimPassDto, required: false })
   @ApiCreatedResponse({ type: ClaimPassResultDto })
   @ApiBadRequestResponse({ description: 'Invalid claim request' })
   @ApiUnauthorizedResponse({ description: 'Authentication required' })
-  @ApiForbiddenResponse({ description: 'Pass claim permission required' })
+  @ApiForbiddenResponse({
+    description: 'Pass claim permission required or INVITATION_REQUIRED',
+  })
   @ApiNotFoundResponse({ description: 'Ticket type or event not found' })
   @ApiConflictResponse({
     description:
-      'Event is not published, ticket type is inactive or sold out, or the pass was already claimed',
+      'Event unpublished, type inactive/sold out, duplicate pass, or invitation expired/revoked/exhausted/unavailable',
   })
   claim(
     @Param('ticketTypeId') ticketTypeId: string,
-    @Body(ClaimPassBodyValidationPipe) _body: void,
+    @Body(ClaimPassBodyValidationPipe) input: ClaimPassInput,
     @Session() session: UserSession<typeof auth>,
   ): Promise<ClaimPassResult> {
-    return this.passesService.claim(ticketTypeId, session.user.id);
+    return this.passesService.claim(
+      ticketTypeId,
+      session.user.id,
+      input.invitationToken,
+    );
   }
 }

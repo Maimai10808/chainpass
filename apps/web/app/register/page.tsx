@@ -3,6 +3,16 @@ export const metadata = {
   title: "Create an account",
   robots: { index: false },
 };
-export default function RegisterPage() {
-  return <AuthForm mode="register" />;
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+  return (
+    <AuthForm
+      mode="register"
+      next={typeof next === "string" ? next : undefined}
+    />
+  );
 }

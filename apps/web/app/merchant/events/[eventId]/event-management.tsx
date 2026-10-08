@@ -44,6 +44,7 @@ import {
   FieldError,
 } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
+import { InvitationsPanel } from "@/components/merchant/invitations-panel";
 import {
   Dialog,
   DialogContent,
@@ -151,6 +152,11 @@ export function EventManagement({ eventId }: { eventId: string }) {
                 <Detail label="Organizer ID" mono>
                   {data.organizerId}
                 </Detail>
+                <Detail label="Access">
+                  {data.accessMode === "INVITE_ONLY"
+                    ? "Invitation only"
+                    : "Public discovery"}
+                </Detail>
               </dl>
             </CardContent>
             <CardFooter className="flex flex-col items-start gap-3">
@@ -158,22 +164,28 @@ export function EventManagement({ eventId }: { eventId: string }) {
                 <>
                   <p className="flex items-center gap-2 text-body-sm text-success">
                     <CheckCircle2 className="size-4" />
-                    Published and discoverable
+                    {data.accessMode === "INVITE_ONLY"
+                      ? "Published · Invitation required"
+                      : "Published and discoverable"}
                   </p>
-                  <Button
-                    variant="outline"
-                    nativeButton={false}
-                    render={<Link href={"/events/" + data.id} />}
-                  >
-                    Public event
-                    <ArrowUpRight data-icon="inline-end" />
-                  </Button>
+                  {data.accessMode === "PUBLIC" && (
+                    <Button
+                      variant="outline"
+                      nativeButton={false}
+                      render={<Link href={"/events/" + data.id} />}
+                    >
+                      Public event
+                      <ArrowUpRight data-icon="inline-end" />
+                    </Button>
+                  )}
                 </>
               ) : (
                 <>
                   <p className="text-body-sm text-muted-foreground">
                     {canPublish
-                      ? "Ready to publish. Attendees will be able to claim active passes."
+                      ? data.accessMode === "INVITE_ONLY"
+                        ? "Ready to publish. Create invitation links afterwards to let attendees claim."
+                        : "Ready to publish. Attendees will be able to claim active passes."
                       : "Create at least one active ticket type before publishing."}
                   </p>
                   <Button
@@ -237,6 +249,11 @@ export function EventManagement({ eventId }: { eventId: string }) {
               />
             )}
           </section>
+          {data.status === "PUBLISHED" &&
+            data.accessMode === "INVITE_ONLY" &&
+            tickets.isSuccess && (
+              <InvitationsPanel eventId={eventId} tickets={tickets.data} />
+            )}
         </div>
         <Card>
           <CardHeader>
@@ -317,8 +334,10 @@ export function EventManagement({ eventId }: { eventId: string }) {
           <DialogHeader>
             <DialogTitle>Publish this experience?</DialogTitle>
             <DialogDescription>
-              It will become publicly visible, and attendees can claim active
-              passes. There is no unpublish action in this release.
+              {data.accessMode === "INVITE_ONLY"
+                ? "It will stay hidden from Discover. Create and share invitation links after publishing."
+                : "It will become publicly visible, and attendees can claim active passes."}{" "}
+              There is no unpublish action in this release.
             </DialogDescription>
           </DialogHeader>
           {publish.isError && <ErrorState error={publish.error} />}

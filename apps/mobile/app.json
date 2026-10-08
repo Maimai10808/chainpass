@@ -8,14 +8,18 @@
     "scheme": "chainpass",
     "userInterfaceStyle": "dark",
     "ios": {
-      "icon": "./assets/chainpass-icon.png"
+      "icon": "./assets/chainpass-icon.png",
+      "bundleIdentifier": "com.maimai777.mobile"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#07080B",
         "foregroundImage": "./assets/chainpass-icon.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
       "output": "static",

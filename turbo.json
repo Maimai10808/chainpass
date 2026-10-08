@@ -6,13 +6,8 @@
       "persistent": true
     },
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "outputs": [
-        ".next/**",
-        "dist/**"
-      ],
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "dist/**", ".output/**"],
       "env": [
         "NEXT_PUBLIC_API_URL",
         "NEXT_PUBLIC_AUTH_URL",
@@ -23,22 +18,17 @@
       ]
     },
     "lint": {
-      "dependsOn": [
-        "^lint"
-      ]
+      "dependsOn": ["^lint"]
     },
     "typecheck": {
-      "dependsOn": [
-        "^typecheck"
-      ]
+      "dependsOn": ["^typecheck"]
+    },
+    "@chainpass/extension#typecheck": {
+      "cache": false
     },
     "test": {
-      "dependsOn": [
-        "^test"
-      ],
-      "env": [
-        "DATABASE_URL"
-      ]
+      "dependsOn": ["^test"],
+      "env": ["DATABASE_URL"]
     }
   }
 }

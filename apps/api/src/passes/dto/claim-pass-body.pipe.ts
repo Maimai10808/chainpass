@@ -3,23 +3,31 @@ import {
   Injectable,
   type PipeTransform,
 } from '@nestjs/common';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { claimPassInputSchema, type ClaimPassInput } from '@chainpass/schemas';
+
+export class ClaimPassDto implements ClaimPassInput {
+  @ApiPropertyOptional({
+    minLength: 43,
+    maxLength: 43,
+    description:
+      'Required for INVITE_ONLY events; bound to the requested ticket type',
+  })
+  invitationToken?: string;
+}
 
 @Injectable()
-export class ClaimPassBodyValidationPipe implements PipeTransform<unknown, void> {
-  transform(value: unknown): void {
-    if (
-      value === undefined ||
-      value === null ||
-      (typeof value === 'object' &&
-        !Array.isArray(value) &&
-        Object.keys(value).length === 0)
-    ) {
-      return;
-    }
+export class ClaimPassBodyValidationPipe implements PipeTransform<
+  unknown,
+  ClaimPassInput
+> {
+  transform(value: unknown): ClaimPassInput {
+    const result = claimPassInputSchema.safeParse(value ?? {});
+    if (result.success) return result.data;
 
     throw new BadRequestException({
       code: 'VALIDATION_ERROR',
-      message: 'Claim Pass does not accept a request body',
+      message: 'Claim request may only contain a valid invitationToken',
     });
   }
 }

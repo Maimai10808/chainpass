@@ -47,6 +47,12 @@ export function ManagedEventCard({
       </View>
       <Fact label="Date" value={formatEventDate(event.startsAt)} />
       <Fact label="Location" value={event.location ?? "To be announced"} />
+      <Fact
+        label="Access"
+        value={
+          event.accessMode === "INVITE_ONLY" ? "Invitation only" : "Public"
+        }
+      />
       {admin && <Fact label="Organizer" value={event.organizer.name} />}
       <Text style={text.body}>{event.ticketTypeCount} ticket types</Text>
       <ActionButton

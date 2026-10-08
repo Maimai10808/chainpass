@@ -1,222 +1,135 @@
-# ChainPass API Contract
+# ChainPass API 契约 / API Contract
+
+[中文](#zh) · [English](#en)
+
+<a id="zh"></a>
+
+## 中文
+
+本文是接口边界/协作规则，不替代 Swagger。服务端 DTO/Controller/OpenAPI 在 apps/api，跨应用 Schema/Client 在 packages；当前 Client 集中手工维护，自动生成未落地。身份端点由 Better Auth 提供，见[认证](./AUTH_ARCHITECTURE.md#zh)。
+
+### 路由
+
+下表是 NestJS 直连业务路径。生产公网普通业务加 `/api`；Auth 本来就是 `/api/auth/*`，代理不能重复加前缀。Swagger 为 `/docs` 和 `/docs/openapi.json`。未登录受保护请求 401，错误角色或归属 403。
+
+| 方法   | 路径                                 | 权限               | 行为                                           |
+| ------ | ------------------------------------ | ------------------ | ---------------------------------------------- |
+| `POST` | `/events`                            | merchant/admin     | 创建 DRAFT，默认邀请制，organizer 来自 Session |
+| `GET`  | `/events`                            | public             | 仅 PUBLIC + PUBLISHED                          |
+| `GET`  | `/events/mine`                       | merchant/admin     | 只列当前 organizer                             |
+| `GET`  | `/events/admin`                      | admin              | 全平台，显式 admin 角色                        |
+| `GET`  | `/events/:eventId`                   | public             | 仅公开已发布详情与 ACTIVE 票种                 |
+| `GET`  | `/events/:eventId/manage`            | organizer/admin    | 完整管理 Event                                 |
+| `POST` | `/events/:eventId/publish`           | organizer/admin    | 合法日期、至少一个 ACTIVE 票种；重复幂等       |
+| `POST` | `/events/:eventId/ticket-types`      | organizer/admin    | 创建票种、库存与价格元数据                     |
+| `GET`  | `/events/:eventId/ticket-types`      | organizer/admin    | 受归属限制的管理列表                           |
+| `POST` | `/events/:eventId/invitations`       | organizer/admin    | 已发布邀请制；绑定 ACTIVE 票种；token 仅一次   |
+| `GET`  | `/events/:eventId/invitations`       | organizer/admin    | quota/expiry/revocation，无 token/hash         |
+| `POST` | `/invitations/:invitationId/revoke`  | organizer/admin    | 幂等撤销；已领 Pass 不受影响                   |
+| `POST` | `/invitations/resolve`               | bearer link        | 匿名预览指定活动/票种，不消费次数              |
+| `POST` | `/ticket-types/:ticketTypeId/claim`  | user/admin         | 可选 invitationToken；事务领取                 |
+| `GET`  | `/passes/me`                         | authenticated      | 仅 Session owner                               |
+| `GET`  | `/wallets/me`                        | authenticated      | 已验证 Wallet 或 null                          |
+| `POST` | `/wallets/challenge`                 | authenticated      | 五分钟一次性签名挑战                           |
+| `POST` | `/wallets/verify`                    | authenticated      | 签名验证与唯一绑定                             |
+| `POST` | `/passes/:passId/mint`               | user/admin + owner | ACTIVE、已绑定；幂等/恢复                      |
+| `POST` | `/passes/:passId/verification-token` | owner              | 仅 ACTIVE，60 秒 HMAC QR                       |
+| `GET`  | `/passes/:passId/verify`             | organizer/admin    | 只读；可选链上增强                             |
+| `POST` | `/passes/verify-token`               | organizer/admin    | 验签/expiry/DB 后复用 Verify                   |
+| `POST` | `/passes/:passId/check-in`           | organizer/admin    | QR/MANUAL，原子一次性核销                      |
 
-本文约束 ChainPass 业务 API 的设计、发布和客户端消费方式。Authentication 端点继续由 Better Auth 提供，详细边界见 [AUTH_ARCHITECTURE.md](./AUTH_ARCHITECTURE.md)。工程依赖方向见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+### 关键输入输出
 
-## 1. 当前状态与目标链路
+- CreateEvent：name/description/coverImageUrl/location/startsAt/endsAt/accessMode；省略 accessMode 默认 INVITE_ONLY。无更新 accessMode 入口。公开查询不泄漏 Draft/私有详情。
+- TicketType：name/description/price/totalSupply；claimedCount 服务端初始化，状态默认 ACTIVE。price 请求安全非负整数、DB BIGINT、响应十进制字符串；不是支付流程。
+- Invitation create：ticketTypeId/maxUses/expiresAt；未来带时区时间、正整数 quota。resolve：{token}；创建一次返回原始 token，列表不返回 tokenHash。响应 private/no-store。
+- Claim body：可空或{invitationToken}。PUBLIC 允许空 body，邀请制缺 token 为 INVITATION_REQUIRED；owner 固定 Session。返回 Pass 与 remaining。quota/库存/Pass 同事务，Pass 票种+owner 唯一。
+- Wallet：challenge 提交 address/chainId；verify 提交 challengeId/signature。不能提交 userId。连接不等于绑定，challenge 五分钟且一次性。
+- Mint 无 recipient；从绑定 Wallet 取目标。仅自己的 ACTIVE Pass，receipt/owner 验证后写完整字段；已 Mint/链成功 DB 失败重试恢复。tokenId 与 uint256 用字符串。
+- QR 返回{token,expiresAt}；输入 verify-token 为{token}。Payload v/passId/ownerId/nonce/iat/exp，HMAC 签名 60 秒，DB 状态重新校验。
+- Check-in 仅 method=MANUAL/QR；verifiedById 来自 Session，唯一 CheckIn+条件 ACTIVE 更新防重。
+- PassView 的 ON_CHAIN_VERIFIED 是已持久化 Mint 字段，不等于该请求新查 RPC。Verify 的 NOT_MINTED/VERIFIED/MISMATCH/UNAVAILABLE 为链上增强，不阻塞业务有效核销。
 
-当前业务 Contract 包含 Event/TicketType、公开浏览、Pass 领取与列表、Wallet 签名绑定、Blockchain Mint、Merchant Verify/Check-in，以及动态 QR Verification。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。
+### 错误约定
 
-Event 接口边界如下：
+无统一 success envelope；明确 DTO 直接返回。错误使用 HTTP status、code、message，不泄漏 stack/SQL/Secret。主要可预期错误：
 
-| Method | Path                                 | Access          | Semantics                                                           |
-| ------ | ------------------------------------ | --------------- | ------------------------------------------------------------------- |
-| `POST` | `/events`                            | merchant/admin  | 创建 `DRAFT` Event，organizer 来自 Session                          |
-| `GET`  | `/events/:eventId/manage`            | organizer/admin | 返回 Merchant 管理所需的完整 Event                                  |
-| `POST` | `/events/:eventId/publish`           | organizer/admin | 满足发布规则后执行 `DRAFT → PUBLISHED`；重复发布幂等返回当前 Event  |
-| `GET`  | `/events`                            | public          | 只返回 `PUBLISHED` Event 的公开字段                                 |
-| `GET`  | `/events/mine`                       | merchant/admin  | 只返回 Session organizer 自己的 Draft/Published、票种数量与最小 organizer 信息 |
-| `GET`  | `/events/admin`                      | admin only      | 全平台 Draft/Published 列表；显式 admin 角色校验，不只检查 event read 权限 |
-| `GET`  | `/events/:eventId`                   | public          | 只返回 `PUBLISHED` Event 与 `ACTIVE` TicketType；Draft 按未找到处理 |
-| `POST` | `/events/:eventId/ticket-types`      | organizer/admin | 创建 TicketType                                                     |
-| `GET`  | `/events/:eventId/ticket-types`      | authenticated   | 返回管理流程的 TicketType 列表                                      |
-| `POST` | `/ticket-types/:ticketTypeId/claim`  | user/admin      | 使用 Session owner 领取 Pass；成功返回 Pass 与剩余库存              |
-| `GET`  | `/passes/me`                         | authenticated   | 只返回当前 Session User 拥有的 Pass                                 |
-| `POST` | `/wallets/challenge`                 | authenticated   | 为 Session User 和指定地址创建五分钟有效的一次性签名消息            |
-| `POST` | `/wallets/verify`                    | authenticated   | 验证 challenge、签名和地址后绑定 Wallet                             |
-| `GET`  | `/wallets/me`                        | authenticated   | 返回当前 Session User 的已验证 Wallet；未绑定返回 `null`            |
-| `POST` | `/passes/:passId/mint`               | owner           | 将自己的 ACTIVE Pass Mint 到已验证 Wallet；重复请求返回同一链上结果 |
-| `GET`  | `/passes/:passId/verify`             | organizer/admin | 只读核验 Pass、活动归属、状态与可选链上 Ownership                   |
-| `POST` | `/passes/:passId/check-in`           | organizer/admin | 原子创建 CheckIn 并执行 `ACTIVE → CHECKED_IN`                       |
-| `POST` | `/passes/:passId/verification-token` | owner           | 为自己的 ACTIVE Pass 创建 60 秒有效的签名 QR Credential             |
-| `POST` | `/passes/verify-token`               | organizer/admin | 校验 QR Token 后复用现有 Pass Verify 业务                           |
+| Code                                                                                     | 状态/含义                             |
+| ---------------------------------------------------------------------------------------- | ------------------------------------- |
+| EVENT_HAS_NO_ACTIVE_TICKET_TYPES                                                         | 400，不能发布                         |
+| EVENT_NOT_FOUND                                                                          | 404，含公开查询到 Draft/邀请制        |
+| INVITATION_REQUIRED                                                                      | 403，邀请制缺凭证                     |
+| INVALID_INVITATION                                                                       | 400，格式/未知/票种错配               |
+| INVITATION_EXPIRED / REVOKED / EXHAUSTED / UNAVAILABLE（均加 INVITATION_前缀）           | 409，资格失效                         |
+| PASS_ALREADY_CLAIMED / TICKET_TYPE_SOLD_OUT / EVENT_NOT_PUBLISHED / TICKET_TYPE_INACTIVE | 409，领取冲突                         |
+| PASS_NOT_ACTIVE                                                                          | 409，Mint/QR 前置状态                 |
+| INVALID_QR_TOKEN / QR_TOKEN_EXPIRED                                                      | 400，篡改/过期，不能混成 INVALID PASS |
+| PASS_ALREADY_CHECKED_IN                                                                  | 409，核销防重                         |
 
-发布 Event 前服务端按 Authentication → Permission → Ownership → Business Rule 校验：merchant 只能发布自己组织的 Event，admin 可发布任意 Event；Event 必须存在、时间范围合法，并至少拥有一个 `ACTIVE` TicketType。缺少可发行票种返回 `400 EVENT_HAS_NO_ACTIVE_TICKET_TYPES`。
+详见 DTO/Controller/tests 以确认各 endpoint 精确字段，不引入未经实现的分页/envelope。业务列表目前按实际实现返回数组；Admin 用户列表分页由 Better Auth 负责。
 
-公开 Event Detail 额外返回 `organizer: { name }`，不暴露 organizer email、`organizerId`、创建时间等内部管理字段。公开 TicketType 只包含 `ACTIVE` 项，并由服务端计算 `remaining = totalSupply - claimedCount`。管理列表使用 `ManagedEventSummary`（Event 管理字段、`organizer: { id, name }`、`ticketTypeCount`），静态路由 `/events/mine`、`/events/admin` 在公开动态详情前注册；普通 user 和匿名请求分别返回 403、401。Admin 的 `/events/mine` 也只返回自己组织的活动，全平台视图独立使用 `/events/admin`。
+### 契约维护
 
-Claim Pass 请求不接受可信身份或库存字段；`ownerId` 固定来自 `session.user.id`。Event 必须为 `PUBLISHED`、TicketType 必须为 `ACTIVE` 且有库存，同一 User 对同一 TicketType 只能领取一次。重复领取、未发布、停用和售罄使用 `409` 与稳定业务错误码区分。
+Request、Response、Prisma 内部 Model、SharedSchema 与 On-chain JSON 类型分开；客户端不导入 Prisma。日期带时区 ISO8601，BigInt 用 string。可信身份只来自 Session，不能从 ownerId/organizerId/verifier/role body 决定。
 
-库存扣减和 Pass 创建在同一数据库事务中完成。PostgreSQL 条件更新只在 `claimedCount < totalSupply` 时递增；`Pass(ticketTypeId, ownerId)` 唯一约束提供最终防重，Pass 创建失败会回滚库存更新。
+变更必须同步 DTO/OpenAPI、Zod、Client、Web/Mobile 与成功/401/403/ownership/状态/并发测试。未做/api/v1，破坏性变更也不能让消费者猜测。接口声明中的权限不代表 update/delete/revoke 功能已经实现。
 
-Wallet 请求不能提交 `userId`。Challenge 绑定 Session User、canonical EVM address、chain ID、nonce、签发/过期时间，验证成功后原子标记已使用；同一 User 与同一 canonical address 均只能绑定一次。连接钱包不等于已验证绑定。
+Mobile 邀请已复用这些 API；Web fragment、Native SecureStore/粘贴/scheme 只是交接凭证，不新增第二套 Claim。详见[技术说明](./TECHNICAL_DETAILS.md#zh)。
 
-Mint 请求不能提交 recipient。API 从 Session 校验 Pass ownership，再从 Wallet 表取得目标地址；仅 `ACTIVE` 且未 Mint 的 Pass 可执行。服务端 issuer 等待 receipt、解析 `PassMinted`、验证 `ownerOf` 后一次写入完整链上字段。`tokenId` 以十进制字符串返回；已 Mint 或链成功但 DB 未落库的重试通过 `passHash → tokenId` 恢复，避免第二笔 Mint。
+---
 
-Verify 是只读操作：merchant 只能核验自己组织的 Event 下的 Pass，admin 可核验任意 Pass，普通 user 无权限。响应以 `VALID`、`ALREADY_CHECKED_IN`、`REVOKED`、`INVALID` 区分业务状态，并返回最小 Event、TicketType、Holder 与已有 CheckIn 信息。未 Mint 返回 `NOT_MINTED`；链上 owner 与已绑定 Wallet 一致返回 `VERIFIED`；不一致返回 `MISMATCH`；RPC 或链配置暂时不可用返回 `UNAVAILABLE`。链上状态是增强信息，不阻塞数据库中有效的 Off-chain Pass 核销。
+<a id="en"></a>
 
-Check-in 请求只接受 `method`（当前 Web 使用 `MANUAL`），`verifiedById` 固定来自 Better Auth Session。服务端重新执行 Permission、Event Ownership 与 Pass 状态校验；条件状态更新和 CheckIn 创建位于同一事务，`CheckIn.passId` 唯一约束是最终防重。重复或并发失败返回 `409 PASS_ALREADY_CHECKED_IN`。
+## English
 
-QR Token 使用服务端 `QR_VERIFICATION_SECRET` 进行 HMAC-SHA256 签名，Payload 只包含版本、`passId`、`ownerId`、随机 nonce、签发时间和过期时间，不包含 Session、Email 或 Wallet 信息。Token 默认 60 秒过期，可在有效期内重复执行只读 Verify；签名错误返回 `400 INVALID_QR_TOKEN`，过期返回 `400 QR_TOKEN_EXPIRED`。服务端验签后重新读取 Pass，并调用与手工 Pass ID 相同的 Verify Service。最终核销仍调用 `/passes/:passId/check-in`，扫码方式提交 `method = QR`。
+DTO/Controller/OpenAPI in apps/api define server behavior; shared Zod/client packages define consumer boundaries. The client is currently handwritten, not generated. Better Auth owns authentication, see [Auth](./AUTH_ARCHITECTURE.md#en).
 
-TicketType 的 `price` 以最小货币单位的非负整数写入 PostgreSQL `BIGINT`；创建请求使用 JavaScript 安全整数，响应使用十进制字符串避免 JSON/JavaScript 精度损失，`"0"` 表示免费票。`claimedCount` 由服务端初始化为 `0`，客户端不能提交。Merchant 创建票种前必须通过 Event ownership 校验，admin 可以代管，查询接口保持为已登录用户可读的简单列表。
+### Routes
 
-业务 API 的目标链路是：
+These are direct Nest business paths. Public gateway adds /api to ordinary business routes; Auth already owns /api/auth/*. Swagger is /docs and /docs/openapi.json. Protected anonymous calls return 401; wrong role/ownership 403.
 
-```text
-NestJS DTO + Controller
-    ↓
-OpenAPI / Swagger document
-    ↓
-@chainpass/api-client
-    ↓
-Next.js + React Native
-```
+| Method | Path                                 | Access             | Behavior                                               |
+| ------ | ------------------------------------ | ------------------ | ------------------------------------------------------ |
+| `POST` | `/events`                            | merchant/admin     | Create DRAFT; default INVITE_ONLY; Session organizer   |
+| `GET`  | `/events`                            | public             | PUBLIC + PUBLISHED only                                |
+| `GET`  | `/events/mine`                       | merchant/admin     | Current organizer only                                 |
+| `GET`  | `/events/admin`                      | admin              | Platform list; explicit admin role                     |
+| `GET`  | `/events/:eventId`                   | public             | Public published detail/ACTIVE tickets                 |
+| `GET`  | `/events/:eventId/manage`            | organizer/admin    | Managed event                                          |
+| `POST` | `/events/:eventId/publish`           | organizer/admin    | Valid dates/ACTIVE ticket; repeat idempotent           |
+| `POST` | `/events/:eventId/ticket-types`      | organizer/admin    | Create ticket/stock/price metadata                     |
+| `GET`  | `/events/:eventId/ticket-types`      | organizer/admin    | Ownership-protected management list                    |
+| `POST` | `/events/:eventId/invitations`       | organizer/admin    | Published private/ACTIVE ticket; one-time token output |
+| `GET`  | `/events/:eventId/invitations`       | organizer/admin    | Quota/expiry/revocation; no token/hash                 |
+| `POST` | `/invitations/:invitationId/revoke`  | organizer/admin    | Idempotent revoke; preserves passes                    |
+| `POST` | `/invitations/resolve`               | bearer link        | Anonymous designated preview; no quota use             |
+| `POST` | `/ticket-types/:ticketTypeId/claim`  | user/admin         | Optional invitationToken; atomic claim                 |
+| `GET`  | `/passes/me`                         | authenticated      | Session owner's passes                                 |
+| `GET`  | `/wallets/me`                        | authenticated      | Verified wallet or null                                |
+| `POST` | `/wallets/challenge`                 | authenticated      | Five-minute one-use challenge                          |
+| `POST` | `/wallets/verify`                    | authenticated      | Signature verification/unique binding                  |
+| `POST` | `/passes/:passId/mint`               | user/admin + owner | ACTIVE/bound wallet; idempotency/recovery              |
+| `POST` | `/passes/:passId/verification-token` | owner              | ACTIVE only; 60-second HMAC QR                         |
+| `GET`  | `/passes/:passId/verify`             | organizer/admin    | Read-only; optional chain evidence                     |
+| `POST` | `/passes/verify-token`               | organizer/admin    | Signature/expiry/DB then existing verify               |
+| `POST` | `/passes/:passId/check-in`           | organizer/admin    | QR/MANUAL atomic admission                             |
 
-这是一条实施约束，不是当前已经完成的生成流水线。
+### Contracts
 
-## 2. Source of Truth
+CreateEvent defaults INVITE_ONLY; no accessMode update API. Public detail hides draft/private. Ticket creation defaults ACTIVE/claimedCount 0; safe nonnegative integer price becomes BIGINT/decimal response string, not a payment.
 
-NestJS 暴露的业务 API Contract 是服务端接口事实来源，包括：
+Invitation create accepts ticketTypeId/maxUses/future expiresAt; resolve accepts {token}. Raw token is output once; lists omit token/hash; responses are private/no-store. Claim accepts empty body or optional invitationToken: PUBLIC permits empty, private requires a matching valid token. Session owner is authoritative. Quota/stock/Pass are one transaction; duplicate ticket/owner is forbidden.
 
-- 路径、HTTP method 与 operation ID；
-- Request path/query/body DTO；
-- 成功 Response DTO 与状态码；
-- 错误状态、错误码和可展示信息；
-- Authentication/Authorization requirement；
-- 分页、排序、过滤与时间格式。
+Wallet challenge accepts address/chainId; verification challengeId/signature. No userId; five-minute one-use signature, connection is not binding. Mint accepts no recipient, uses bound wallet, ACTIVE owner and confirmed receipt/owner checks. Idempotent/recovery returns existing chain identity; uint256 values use strings.
 
-DTO 和 OpenAPI metadata 必须同步。Web/Mobile 通过 `@chainpass/api-client` 消费同一 Contract，不在页面、hook 或 platform service 中各自手写重复 DTO。
+QR returns {token,expiresAt}; verify-token takes {token}. HMAC payload v/passId/ownerId/nonce/iat/exp expires after 60 seconds and DB is reloaded. Check-in accepts only QR/MANUAL, Session verifier, conditional ACTIVE update and unique CheckIn.
 
-`@chainpass/schemas` 只承载确实跨边界共享且有运行时校验价值的 Zod Schema。它不能成为与 NestJS/OpenAPI 并行、需要人工同步的第二套完整 Contract。
+PassView ON_CHAIN_VERIFIED means persisted complete metadata, not a fresh chain read. Verify chain NOT_MINTED/VERIFIED/MISMATCH/UNAVAILABLE is advisory and does not block business-valid admission.
 
-## 3. NestJS Contract 规则
+### Errors and evolution
 
-每个业务 endpoint 应明确：
+Success DTOs have no universal envelope. Errors expose HTTP/code/message, not SQL/stack/secret. Publication without active tickets: 400; public draft/private detail: 404; missing invitation: 403; invalid/mismatched invitation: 400; expired/revoked/exhausted/unavailable invitation: 409; duplicate/sold-out/unpublished/inactive claim: 409; inactive Pass: 409; invalid/expired QR: 400; duplicate check-in: 409.
 
-- 一个稳定且语义清晰的 operation ID；
-- 完整的 Request/Response DTO，避免 `any`、模糊对象与未声明字段；
-- 必填、可选、nullable 的区别；
-- enum、格式、长度、数值范围和示例；
-- Auth 是否必需、允许的 Role/Permission；
-- 资源 Ownership 与业务状态限制；
-- 可预期的 4xx/5xx 状态和机器可识别错误码。
+Use exact DTOs/controllers/tests for fields. Business lists currently return arrays; Better Auth owns admin-user pagination. No /api/v1 exists. Request/response/internal Prisma/shared schema/on-chain JSON remain distinct; dates are timezone ISO8601 and BigInt strings.
 
-内部 Prisma Model 不是外部 DTO。Controller 不直接暴露 Prisma 记录；通过 DTO 控制字段、日期、枚举与敏感信息。
-
-## 4. API Client 规则
-
-`@chainpass/api-client` 是 Web 与 Mobile 的统一业务访问层。当前 Web 通过 `createWalletChallenge`、`verifyWallet`、`getMyWallet`、`mintPass`、`verifyPass`、`createPassVerificationToken`、`verifyPassToken` 和 `checkInPass` 消费相应 Contract。它应：
-
-- 从 OpenAPI 生成类型/Client，或在生成链路落地前集中维护唯一实现；
-- 使用调用方提供的 base URL 和平台适配的 Session/Cookie transport；
-- 返回可辨识的成功类型与错误类型；
-- 统一序列化 path/query/body、日期和可选值；
-- 保持 UI 框架无关，不导入 Next.js、React Native 或 NestJS implementation。
-
-业务页面默认不直接散落：
-
-```ts
-fetch("/api/...");
-```
-
-若某个尚未生成的 endpoint 暂时必须直接 request，应把调用集中在 `@chainpass/api-client` 或应用内单一过渡 adapter，并复用服务端 Contract 类型来源；不得让 Web 和 Mobile 各自形成长期实现。
-
-Better Auth 的 `signIn`、`signUp`、`signOut`、`useSession` 继续通过各端已有 Better Auth Client 使用，不为了形式统一将其复制成业务 API DTO。
-
-## 5. Response 与 Error
-
-当前业务 API 尚未建立统一 response envelope。第一批 Vertical Slice 不应先设计复杂 envelope。
-
-默认原则：
-
-- 成功响应直接返回 endpoint 的明确 DTO；
-- 创建使用 `201`，查询/修改使用合适的 `200`/`204`；
-- 错误至少提供稳定 `code` 和人类可读 `message`；
-- validation、authentication、authorization、not found、conflict 和业务状态错误使用可区分的 HTTP status；
-- 不把 stack、SQL、secret、内部路径或 provider 原始敏感信息返回客户端。
-
-如果实现中决定统一 `{ data, message, error }`，必须先用一个真实 endpoint 验证其必要性，并同步 OpenAPI、Client 和所有调用方；不得同时保留包裹与非包裹两种无规则格式。
-
-建议的最小错误形态：
-
-```json
-{
-  "code": "PASS_ALREADY_CHECKED_IN",
-  "message": "Pass has already been checked in"
-}
-```
-
-字段级 validation detail 可以附加，但其结构也必须进入 OpenAPI Contract。
-
-## 6. Authentication 与可信身份
-
-业务 endpoint 的用户身份来自 Better Auth Session：
-
-```text
-Request
-  ↓
-Better Auth Session
-  ↓
-session.user.id / role
-  ↓
-Permission + Ownership + Business Rule
-```
-
-客户端不得通过以下字段决定可信身份：
-
-```text
-ownerId
-organizerId
-verifiedById
-checkedInById
-role
-```
-
-例如 Claim Pass 请求只提交业务选择（如 `eventId`、`ticketTypeId`）；`ownerId` 由 Session 产生。Merchant 修改 Event 时按以下顺序验证：
-
-```text
-Authenticated
-  → merchant/admin role
-  → event:update permission
-  → organizer ownership
-  → current event state permits update
-```
-
-如果 endpoint 需要代表钱包完成链上操作，Session User 与已验证 Wallet 的绑定也必须由服务端确认，不能信任任意客户端地址声明。
-
-## 7. DTO 与 Schema 边界
-
-推荐区分：
-
-- Request DTO：客户端允许提交的字段；
-- Response DTO：客户端稳定可见的字段；
-- Domain/Prisma Model：API 内部状态与关系；
-- Shared Schema：两个以上边界消费者需要的运行时校验；
-- On-chain type：ABI、address、transaction 和 chain-specific 数据。
-
-不要把整个 Prisma Model 导出到前端，也不要让前端根据数据库字段猜测 API。链上 `uint256`、地址、交易 hash 等值需要在 Contract 中声明 JSON 表示方式；大整数不得依赖 JavaScript `number` 的隐式精度。
-
-日期/时间在第一批 DTO 中统一使用带时区的 ISO 8601 字符串；数据库保存和业务展示的时区策略应由服务端明确，客户端不猜测裸字符串。
-
-## 8. 列表、库存与幂等
-
-第一批列表接口只引入主链需要的分页、过滤和排序，参数与默认值写入 OpenAPI。不要提前构建通用 query language。
-
-Claim、Mint 和 Check-in 都可能被重复点击、网络重试或链上回调重复触发，Contract 必须定义：
-
-- 唯一约束或 idempotency key；
-- 重复请求返回同一结果还是明确 conflict；
-- DB 状态与 transaction hash 的关系；
-- pending、confirmed、failed 等状态是否对客户端可见；
-- Check-in 如何保证同一 Pass 不重复核销。
-
-这些规则应由业务 API 承担，不能只依赖按钮禁用或客户端本地状态。
-
-## 9. Versioning
-
-三天 Hackathon 阶段不主动引入复杂 API versioning。当前可保持无 `/api/v1` 的业务路径；在移动端进入真实发布、需要兼容旧 Client 时，再基于实际兼容需求评估版本策略。
-
-破坏性 Contract 变更在当前阶段仍必须原子更新所有仓库内消费者，不能以“尚未 v1”为由让调用方猜测。
-
-## 10. Contract Change Checklist
-
-每次新增或修改业务接口，完成以下闭环：
-
-1. 更新 NestJS DTO、Controller metadata 和业务校验。
-2. 更新/生成 OpenAPI，并检查 operation、required/nullable、enum、状态码和 Auth 描述。
-3. 更新 `@chainpass/api-client` 与必要的 `@chainpass/schemas`。
-4. 更新全部 Web/Mobile 调用方，不保留重复旧类型。
-5. 增加覆盖成功、未登录、无权限、Ownership、非法状态及关键幂等场景的最小测试。
-6. 运行相关 lint、typecheck、test/build，并检查生成产物没有未解释漂移。
-
-Backend Contract 变更与调用方修复属于同一个 Vertical Slice。完成标准见 [DEVELOPMENT_SCOPE.md](./DEVELOPMENT_SCOPE.md)。
+Every change updates DTO/OpenAPI/Zod/client/consumers and success/401/403/ownership/state/race tests atomically. Permission declarations do not implement edit/delete/revoke. Mobile invitations reuse the same contract, not another claim flow. See [internals](./TECHNICAL_DETAILS.md#en).

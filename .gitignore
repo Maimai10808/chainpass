@@ -20,6 +20,16 @@ dist/
 **/dist/
 *.tsbuildinfo
 
+# Experimental platform build / tooling output
+build/
+.output/
+.wxt/
+.temp/
+.rn_temp/
+.swc/
+deploy_versions/
+project.private.config.json
+
 # Expo / React Native
 .expo/
 **/.expo/

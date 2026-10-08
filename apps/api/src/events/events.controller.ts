@@ -128,7 +128,8 @@ export class EventsController {
   @AllowAnonymous()
   @ApiOperation({
     operationId: 'listPublishedEvents',
-    summary: 'List published events',
+    summary:
+      'List public published events; invitation-only events are excluded',
   })
   @ApiOkResponse({ type: PublicEventSummaryDto, isArray: true })
   listPublished(): Promise<PublicEventSummary[]> {
@@ -198,11 +199,14 @@ export class EventsController {
   @AllowAnonymous()
   @ApiOperation({
     operationId: 'getPublishedEvent',
-    summary: 'Get a published event by ID',
+    summary: 'Get a public published event by ID',
   })
   @ApiParam({ name: 'eventId', description: 'Event ID' })
   @ApiOkResponse({ type: PublicEventDetailDto })
-  @ApiNotFoundResponse({ description: 'Published event not found' })
+  @ApiNotFoundResponse({
+    description:
+      'Public published event not found; private events are not disclosed',
+  })
   getPublishedById(
     @Param('eventId') eventId: string,
   ): Promise<PublicEventDetail> {

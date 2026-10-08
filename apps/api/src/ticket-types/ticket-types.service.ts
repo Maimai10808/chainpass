@@ -49,16 +49,26 @@ export class TicketTypesService {
     return this.toResponse(ticketType);
   }
 
-  async list(eventId: string): Promise<TicketTypeResponse[]> {
+  async list(
+    eventId: string,
+    user: { id: string; role?: string | null },
+  ): Promise<TicketTypeResponse[]> {
     const event = await prisma.event.findUnique({
       where: { id: eventId },
-      select: { id: true },
+      select: { id: true, organizerId: true },
     });
 
     if (!event) {
       throw new NotFoundException({
         code: 'EVENT_NOT_FOUND',
         message: 'Event not found',
+      });
+    }
+
+    if (user.role !== 'admin' && event.organizerId !== user.id) {
+      throw new ForbiddenException({
+        code: 'EVENT_OWNERSHIP_REQUIRED',
+        message: 'Only the event organizer can list management ticket types',
       });
     }
 

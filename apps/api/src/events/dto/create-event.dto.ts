@@ -13,6 +13,13 @@ export class CreateEventDto implements CreateEventInput {
   @ApiProperty({ example: 'ChainPass Hackathon 2026', maxLength: 200 })
   name!: string;
 
+  @ApiPropertyOptional({
+    enum: ['PUBLIC', 'INVITE_ONLY'],
+    default: 'INVITE_ONLY',
+    description: 'Invitation-only events are not publicly discoverable',
+  })
+  accessMode?: 'PUBLIC' | 'INVITE_ONLY';
+
   @ApiPropertyOptional({ example: 'Internal hackathon', maxLength: 5000 })
   description?: string;
 

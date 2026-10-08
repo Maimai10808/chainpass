@@ -58,6 +58,7 @@ export class EventsService {
         location: input.location,
         startsAt: new Date(input.startsAt),
         endsAt: new Date(input.endsAt),
+        accessMode: input.accessMode ?? 'INVITE_ONLY',
         organizerId,
       },
     });
@@ -92,7 +93,7 @@ export class EventsService {
 
   async listPublished(): Promise<PublicEventSummary[]> {
     const events = await prisma.event.findMany({
-      where: { status: 'PUBLISHED' },
+      where: { status: 'PUBLISHED', accessMode: 'PUBLIC' },
       orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }],
     });
 
@@ -101,7 +102,7 @@ export class EventsService {
 
   async getPublishedById(eventId: string): Promise<PublicEventDetail> {
     const event = await prisma.event.findFirst({
-      where: { id: eventId, status: 'PUBLISHED' },
+      where: { id: eventId, status: 'PUBLISHED', accessMode: 'PUBLIC' },
       include: {
         organizer: { select: { name: true } },
         ticketTypes: {
@@ -191,6 +192,7 @@ export class EventsService {
     startsAt: Date;
     endsAt: Date;
     status: 'DRAFT' | 'PUBLISHED';
+    accessMode: 'PUBLIC' | 'INVITE_ONLY';
     organizerId: string;
     createdAt: Date;
     updatedAt: Date;

@@ -72,10 +72,7 @@ export function AuthForm({
     defaultValues: { name: "", email: "", password: "", confirmPassword: "" },
   });
   useEffect(() => {
-    if (session)
-      router.replace(
-        loginDestination(session.user.role, isRegister ? "/events" : next),
-      );
+    if (session) router.replace(loginDestination(session.user.role, next));
   }, [isRegister, next, router, session]);
 
   async function submit(values: FormValues) {
@@ -105,9 +102,7 @@ export function AuthForm({
         return;
       }
       toast.success(isRegister ? "Welcome to ChainPass" : "Signed in");
-      router.replace(
-        loginDestination(current.data.user.role, isRegister ? "/events" : next),
-      );
+      router.replace(loginDestination(current.data.user.role, next));
       router.refresh();
     } catch {
       setSubmitError("Unable to connect. Please try again.");
@@ -253,7 +248,13 @@ export function AuthForm({
             {isRegister ? "Already have an account? " : "New to ChainPass? "}
             <Link
               className="text-primary hover:underline"
-              href={isRegister ? "/login" : "/register"}
+              href={
+                (isRegister ? "/login" : "/register") +
+                (next
+                  ? "?next=" +
+                    encodeURIComponent(loginDestination("user", next))
+                  : "")
+              }
             >
               {isRegister ? "Sign in" : "Create an account"}
             </Link>

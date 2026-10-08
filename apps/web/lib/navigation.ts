@@ -34,6 +34,8 @@ export function loginDestination(
     )
       return roleHome(role);
     const currentRole = getRole(role);
+    // The bearer token is retained in tab-scoped storage, never in auth query strings.
+    if (path === "/invite") return "/invite";
     const allowed =
       path === "/" ||
       path === "/events" ||

@@ -1,5 +1,5 @@
 "use client";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -24,11 +24,14 @@ import {
   FieldLabel,
   FieldError,
   FieldDescription,
+  FieldSet,
+  FieldLegend,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 export function EventForm() {
   const router = useRouter();
@@ -41,6 +44,7 @@ export function EventForm() {
       location: "",
       startsAt: "",
       endsAt: "",
+      accessMode: "INVITE_ONLY",
     },
   });
   const mutation = useMutation({
@@ -63,7 +67,7 @@ export function EventForm() {
       <PageHeading
         eyebrow="Merchant / create"
         title="Set the stage."
-        description="Start with the essentials. Your event stays private until you publish."
+        description="Start with the essentials. Choose invitation-only access or public discovery before publishing."
       />
       <Card className="max-w-3xl">
         <CardHeader>
@@ -78,6 +82,41 @@ export function EventForm() {
             noValidate
           >
             <FieldGroup>
+              <Controller
+                control={form.control}
+                name="accessMode"
+                render={({ field }) => (
+                  <FieldSet>
+                    <FieldLegend>Access</FieldLegend>
+                    <FieldDescription>
+                      Invitation-only events stay out of Discover, even after
+                      publishing. Public events are discoverable and allow
+                      direct claims. Access cannot be changed after creation in
+                      this release.
+                    </FieldDescription>
+                    <RadioGroup
+                      value={field.value ?? "INVITE_ONLY"}
+                      onValueChange={field.onChange}
+                    >
+                      <Field orientation="horizontal">
+                        <RadioGroupItem
+                          id="access-invite"
+                          value="INVITE_ONLY"
+                        />
+                        <FieldLabel htmlFor="access-invite">
+                          Invitation only (recommended)
+                        </FieldLabel>
+                      </Field>
+                      <Field orientation="horizontal">
+                        <RadioGroupItem id="access-public" value="PUBLIC" />
+                        <FieldLabel htmlFor="access-public">
+                          Public discovery
+                        </FieldLabel>
+                      </Field>
+                    </RadioGroup>
+                  </FieldSet>
+                )}
+              />
               <Field data-invalid={Boolean(errors.name)}>
                 <FieldLabel htmlFor="event-name">Event name *</FieldLabel>
                 <Input

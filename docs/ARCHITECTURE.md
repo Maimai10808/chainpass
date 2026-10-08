@@ -82,6 +82,7 @@ apps/api/src/
   database/      Prisma Client / PostgreSQL adapter
   health/        根级应用端点
   events/        Event 创建、管理、发布与公开查询
+  invitations/   票种邀请创建/撤销、只读预览与 Claim 事务内次数校验
   ticket-types/  TicketType 创建与管理查询
   passes/        Claim、My Passes 与 Mint orchestration
   check-ins/     Pass Verify、Event Ownership 与原子核销
@@ -156,6 +157,10 @@ PostgreSQL
 ```
 
 动态 QR 只承载由 API 使用 HMAC-SHA256 签名、60 秒有效的临时 Credential。Scanner 验签并解析 `passId` 后回到现有 Verify/Check-in Service；数据库 Pass/CheckIn 始终是核验状态事实来源，二维码本身不修改业务状态，也不需要新增数据表。
+
+邀请链接与现场 QR 是两个独立阶段：`Event.accessMode` 区分 PUBLIC / INVITE_ONLY，新 API 创建默认邀请制，历史 Event 在 migration 中保留 PUBLIC。邀请制活动发布后仍不进入公开列表，裸 Event ID 也无法访问公开详情。Merchant 为自己的已发布活动创建绑定一个票种的 `Invitation`（次数上限、有效期、撤销状态），数据库只存 32 字节随机 token 的 SHA-256 hash。持有效链接的人可匿名预览，登录后由现有 Pass Claim Service 在一个事务中消费邀请次数、扣库存并创建独立 Pass；失败全部回滚，Pass 通过 nullable `invitationId` 保留来源。邀请撤销不撤销已领取的 Pass，也不改变链上 Mint / QR / Check-in 逻辑。
+
+Web 分享 `/invite#token=...`，凭证不进入路径、query、登录 `next` 或 Query cache key，API 接收 POST body，响应禁止共享缓存。Auth 往返只用当前 tab 的 sessionStorage 暂存凭证，成功领取后删除；邀请页不索引且不发送 referrer。链接可转发，并不证明受邀人的实名身份；本版本没有专门的邀请 endpoint rate limiting，长期运行前仍需评估滥用防护。Mobile 继续消费共享 Contract；原生邀请 deep link/领取入口不在这一版 Web-first 范围内。
 
 Create Event、Issue TicketType、Publish/Discovery、Claim/My Passes、Wallet Binding、Mint、Merchant Verify/Check-in 与 Mobile User Experience 已按该路径落地；后续 Vertical Slice 继续扩展同一 Client 和 Schema 边界，避免在两个客户端各自形成临时 Contract。
 

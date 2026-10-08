@@ -13,24 +13,25 @@ datasource db {
 }
 
 model User {
-  id               String            @id
-  name             String
-  email            String
-  emailVerified    Boolean           @default(false)
-  image            String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  role             String?
-  banned           Boolean?          @default(false)
-  banReason        String?
-  banExpires       DateTime?
-  sessions         Session[]
-  accounts         Account[]
-  organizedEvents  Event[]
-  ownedPasses      Pass[]
-  verifiedCheckIns CheckIn[]
-  wallet           Wallet?
-  walletChallenges WalletChallenge[]
+  id                 String            @id
+  name               String
+  email              String
+  emailVerified      Boolean           @default(false)
+  image              String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  role               String?
+  banned             Boolean?          @default(false)
+  banReason          String?
+  banExpires         DateTime?
+  sessions           Session[]
+  accounts           Account[]
+  organizedEvents    Event[]
+  ownedPasses        Pass[]
+  verifiedCheckIns   CheckIn[]
+  wallet             Wallet?
+  walletChallenges   WalletChallenge[]
+  createdInvitations Invitation[]
 
   @@unique([email])
   @@map("user")
@@ -90,25 +91,32 @@ enum EventStatus {
   PUBLISHED
 }
 
+enum EventAccessMode {
+  PUBLIC
+  INVITE_ONLY
+}
+
 model Event {
-  id            String       @id @default(cuid())
+  id            String          @id @default(cuid())
   name          String
   description   String?
   coverImageUrl String?
   location      String?
   startsAt      DateTime
   endsAt        DateTime
-  status        EventStatus  @default(DRAFT)
+  status        EventStatus     @default(DRAFT)
+  // Preserve legacy/imported rows; the Create Event API defaults to INVITE_ONLY.
+  accessMode    EventAccessMode @default(PUBLIC)
   organizerId   String
-  organizer     User         @relation(fields: [organizerId], references: [id], onDelete: Restrict)
+  organizer     User            @relation(fields: [organizerId], references: [id], onDelete: Restrict)
   ticketTypes   TicketType[]
   passes        Pass[]
   checkIns      CheckIn[]
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   @@index([organizerId])
-  @@index([status, startsAt])
+  @@index([status, accessMode, startsAt])
 }
 
 enum TicketTypeStatus {
@@ -129,6 +137,7 @@ model TicketType {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   passes       Pass[]
+  invitations  Invitation[]
 
   @@index([eventId, status])
 }
@@ -145,27 +154,47 @@ enum CheckInMethod {
 }
 
 model Pass {
-  id              String     @id @default(cuid())
+  id              String      @id @default(cuid())
   eventId         String
-  event           Event      @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  event           Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
   ticketTypeId    String
-  ticketType      TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
+  ticketType      TicketType  @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
   ownerId         String
-  owner           User       @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  status          PassStatus @default(ACTIVE)
+  owner           User        @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  status          PassStatus  @default(ACTIVE)
   tokenId         String?
   mintTxHash      String?
   contractAddress String?
   chainId         Int?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
   checkIn         CheckIn?
+  invitationId    String?
+  invitation      Invitation? @relation(fields: [invitationId], references: [id], onDelete: SetNull)
 
   @@unique([ticketTypeId, ownerId])
   @@unique([contractAddress, tokenId])
   @@unique([mintTxHash])
   @@index([ownerId, createdAt])
   @@index([eventId])
+  @@index([invitationId])
+}
+
+model Invitation {
+  id           String     @id @default(cuid())
+  ticketTypeId String
+  ticketType   TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  tokenHash    String     @unique
+  createdById  String
+  createdBy    User       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  maxUses      Int
+  usedCount    Int        @default(0)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime   @default(now())
+  passes       Pass[]
+
+  @@index([ticketTypeId, createdAt])
 }
 
 model CheckIn {

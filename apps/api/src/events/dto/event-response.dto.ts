@@ -26,6 +26,9 @@ export class EventResponseDto implements EventResponse {
   @ApiProperty({ enum: ['DRAFT', 'PUBLISHED'] })
   status!: 'DRAFT' | 'PUBLISHED';
 
+  @ApiProperty({ enum: ['PUBLIC', 'INVITE_ONLY'] })
+  accessMode!: 'PUBLIC' | 'INVITE_ONLY';
+
   @ApiProperty()
   organizerId!: string;
 

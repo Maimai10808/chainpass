@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test lib/navigation.test.mjs lib/design/foundation.test.mjs"
+    "test": "node --test lib/navigation.test.mjs lib/invitation-link.test.mjs lib/design/foundation.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

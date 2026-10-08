@@ -12,6 +12,7 @@ import type {
 
 import { BlockchainService } from '../blockchain/blockchain.service.js';
 import { prisma } from '../database/prisma.js';
+import { InvitationsService } from '../invitations/invitations.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 
 type PassWithDetails = Prisma.PassGetPayload<{
@@ -20,9 +21,16 @@ type PassWithDetails = Prisma.PassGetPayload<{
 
 @Injectable()
 export class PassesService {
-  constructor(private readonly blockchainService: BlockchainService) {}
+  constructor(
+    private readonly blockchainService: BlockchainService,
+    private readonly invitations: InvitationsService,
+  ) {}
 
-  async claim(ticketTypeId: string, ownerId: string): Promise<ClaimPassResult> {
+  async claim(
+    ticketTypeId: string,
+    ownerId: string,
+    invitationToken?: string,
+  ): Promise<ClaimPassResult> {
     try {
       return await prisma.$transaction(async (transaction) => {
         const ticketType = await transaction.ticketType.findUnique({
@@ -51,6 +59,13 @@ export class PassesService {
           });
         }
 
+        if (ticketType.event.accessMode === 'INVITE_ONLY' && !invitationToken) {
+          throw new ForbiddenException({
+            code: 'INVITATION_REQUIRED',
+            message: 'Open a valid invitation link to claim this pass',
+          });
+        }
+
         const existingPass = await transaction.pass.findUnique({
           where: {
             ticketTypeId_ownerId: { ticketTypeId, ownerId },
@@ -64,6 +79,14 @@ export class PassesService {
             message: 'You already claimed this pass',
           });
         }
+
+        const invitationId = invitationToken
+          ? await this.invitations.consume(
+              transaction,
+              invitationToken,
+              ticketTypeId,
+            )
+          : undefined;
 
         const inventory = await transaction.$queryRaw<
           Array<{ claimedCount: number; totalSupply: number }>
@@ -90,6 +113,7 @@ export class PassesService {
             eventId: ticketType.eventId,
             ticketTypeId,
             ownerId,
+            invitationId,
           },
           include: { event: true, ticketType: true },
         });

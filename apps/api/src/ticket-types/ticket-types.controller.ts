@@ -63,7 +63,7 @@ export class TicketTypesController {
   }
 
   @Get()
-  @UserHasPermission({ permission: { event: ['read'] } })
+  @UserHasPermission({ permission: { event: ['update'] } })
   @ApiOperation({
     operationId: 'listTicketTypes',
     summary: 'List ticket types for an event',
@@ -71,9 +71,14 @@ export class TicketTypesController {
   @ApiParam({ name: 'eventId', description: 'Event ID' })
   @ApiOkResponse({ type: TicketTypeResponseDto, isArray: true })
   @ApiUnauthorizedResponse({ description: 'Authentication required' })
-  @ApiForbiddenResponse({ description: 'Event read permission required' })
+  @ApiForbiddenResponse({
+    description: 'Event update permission and organizer ownership required',
+  })
   @ApiNotFoundResponse({ description: 'Event not found' })
-  list(@Param('eventId') eventId: string): Promise<TicketTypeResponse[]> {
-    return this.ticketTypesService.list(eventId);
+  list(
+    @Param('eventId') eventId: string,
+    @Session() session: UserSession<typeof auth>,
+  ): Promise<TicketTypeResponse[]> {
+    return this.ticketTypesService.list(eventId, session.user);
   }
 }

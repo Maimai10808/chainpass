@@ -4,39 +4,47 @@
 
 ## 1. 当前状态与目标链路
 
-当前业务 Contract 包含 Event/TicketType、公开浏览、Pass 领取与列表、Wallet 签名绑定、Blockchain Mint、Merchant Verify/Check-in，以及动态 QR Verification。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。
+当前业务 Contract 包含 Event/TicketType、公开浏览、票种邀请链接、Pass 领取与列表、Wallet 签名绑定、Blockchain Mint、Merchant Verify/Check-in，以及动态 QR Verification。NestJS 负责路由、Role/Ownership 权限与 OpenAPI metadata，`@chainpass/schemas` 提供跨 API/Web 边界的 Zod 输入/输出 Schema，`@chainpass/api-client` 封装调用。Swagger UI 位于 `/docs`，JSON Contract 位于 `/docs/openapi.json`。
 
 Event 接口边界如下：
 
-| Method | Path                                 | Access          | Semantics                                                           |
-| ------ | ------------------------------------ | --------------- | ------------------------------------------------------------------- |
-| `POST` | `/events`                            | merchant/admin  | 创建 `DRAFT` Event，organizer 来自 Session                          |
-| `GET`  | `/events/:eventId/manage`            | organizer/admin | 返回 Merchant 管理所需的完整 Event                                  |
-| `POST` | `/events/:eventId/publish`           | organizer/admin | 满足发布规则后执行 `DRAFT → PUBLISHED`；重复发布幂等返回当前 Event  |
-| `GET`  | `/events`                            | public          | 只返回 `PUBLISHED` Event 的公开字段                                 |
-| `GET`  | `/events/mine`                       | merchant/admin  | 只返回 Session organizer 自己的 Draft/Published、票种数量与最小 organizer 信息 |
-| `GET`  | `/events/admin`                      | admin only      | 全平台 Draft/Published 列表；显式 admin 角色校验，不只检查 event read 权限 |
-| `GET`  | `/events/:eventId`                   | public          | 只返回 `PUBLISHED` Event 与 `ACTIVE` TicketType；Draft 按未找到处理 |
-| `POST` | `/events/:eventId/ticket-types`      | organizer/admin | 创建 TicketType                                                     |
-| `GET`  | `/events/:eventId/ticket-types`      | authenticated   | 返回管理流程的 TicketType 列表                                      |
-| `POST` | `/ticket-types/:ticketTypeId/claim`  | user/admin      | 使用 Session owner 领取 Pass；成功返回 Pass 与剩余库存              |
-| `GET`  | `/passes/me`                         | authenticated   | 只返回当前 Session User 拥有的 Pass                                 |
-| `POST` | `/wallets/challenge`                 | authenticated   | 为 Session User 和指定地址创建五分钟有效的一次性签名消息            |
-| `POST` | `/wallets/verify`                    | authenticated   | 验证 challenge、签名和地址后绑定 Wallet                             |
-| `GET`  | `/wallets/me`                        | authenticated   | 返回当前 Session User 的已验证 Wallet；未绑定返回 `null`            |
-| `POST` | `/passes/:passId/mint`               | owner           | 将自己的 ACTIVE Pass Mint 到已验证 Wallet；重复请求返回同一链上结果 |
-| `GET`  | `/passes/:passId/verify`             | organizer/admin | 只读核验 Pass、活动归属、状态与可选链上 Ownership                   |
-| `POST` | `/passes/:passId/check-in`           | organizer/admin | 原子创建 CheckIn 并执行 `ACTIVE → CHECKED_IN`                       |
-| `POST` | `/passes/:passId/verification-token` | owner           | 为自己的 ACTIVE Pass 创建 60 秒有效的签名 QR Credential             |
-| `POST` | `/passes/verify-token`               | organizer/admin | 校验 QR Token 后复用现有 Pass Verify 业务                           |
+| Method | Path                                 | Access          | Semantics                                                                                        |
+| ------ | ------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------ |
+| `POST` | `/events`                            | merchant/admin  | 创建 `DRAFT` Event，organizer 来自 Session；`accessMode` 默认 `INVITE_ONLY`，可显式选择 `PUBLIC` |
+| `GET`  | `/events/:eventId/manage`            | organizer/admin | 返回 Merchant 管理所需的完整 Event                                                               |
+| `POST` | `/events/:eventId/publish`           | organizer/admin | 满足发布规则后执行 `DRAFT → PUBLISHED`；重复发布幂等返回当前 Event                               |
+| `GET`  | `/events`                            | public          | 只返回 `PUBLIC + PUBLISHED` Event 的公开字段                                                     |
+| `GET`  | `/events/mine`                       | merchant/admin  | 只返回 Session organizer 自己的 Draft/Published、票种数量与最小 organizer 信息                   |
+| `GET`  | `/events/admin`                      | admin only      | 全平台 Draft/Published 列表；显式 admin 角色校验，不只检查 event read 权限                       |
+| `GET`  | `/events/:eventId`                   | public          | 只返回 `PUBLIC + PUBLISHED` Event 与 `ACTIVE` TicketType；Draft/邀请制按未找到处理               |
+| `POST` | `/events/:eventId/ticket-types`      | organizer/admin | 创建 TicketType                                                                                  |
+| `GET`  | `/events/:eventId/ticket-types`      | organizer/admin | 返回管理流程的 TicketType 列表；不向普通 user 或其他 Merchant 暴露                               |
+| `POST` | `/events/:eventId/invitations`       | organizer/admin | 为已发布的邀请制活动创建绑定一个 ACTIVE TicketType 的邀请；原始 token 只返回一次                 |
+| `GET`  | `/events/:eventId/invitations`       | organizer/admin | 返回次数、有效期、撤销状态，不返回 token 或 tokenHash                                            |
+| `POST` | `/invitations/:invitationId/revoke`  | organizer/admin | 幂等撤销后续领取资格；已经创建的 Pass 不受影响                                                   |
+| `POST` | `/invitations/resolve`               | bearer link     | 匿名只读预览邀请指定的活动和一个票种；不消耗次数                                                 |
+| `POST` | `/ticket-types/:ticketTypeId/claim`  | user/admin      | 使用 Session owner 领取 Pass；成功返回 Pass 与剩余库存                                           |
+| `GET`  | `/passes/me`                         | authenticated   | 只返回当前 Session User 拥有的 Pass                                                              |
+| `POST` | `/wallets/challenge`                 | authenticated   | 为 Session User 和指定地址创建五分钟有效的一次性签名消息                                         |
+| `POST` | `/wallets/verify`                    | authenticated   | 验证 challenge、签名和地址后绑定 Wallet                                                          |
+| `GET`  | `/wallets/me`                        | authenticated   | 返回当前 Session User 的已验证 Wallet；未绑定返回 `null`                                         |
+| `POST` | `/passes/:passId/mint`               | owner           | 将自己的 ACTIVE Pass Mint 到已验证 Wallet；重复请求返回同一链上结果                              |
+| `GET`  | `/passes/:passId/verify`             | organizer/admin | 只读核验 Pass、活动归属、状态与可选链上 Ownership                                                |
+| `POST` | `/passes/:passId/check-in`           | organizer/admin | 原子创建 CheckIn 并执行 `ACTIVE → CHECKED_IN`                                                    |
+| `POST` | `/passes/:passId/verification-token` | owner           | 为自己的 ACTIVE Pass 创建 60 秒有效的签名 QR Credential                                          |
+| `POST` | `/passes/verify-token`               | organizer/admin | 校验 QR Token 后复用现有 Pass Verify 业务                                                        |
 
 发布 Event 前服务端按 Authentication → Permission → Ownership → Business Rule 校验：merchant 只能发布自己组织的 Event，admin 可发布任意 Event；Event 必须存在、时间范围合法，并至少拥有一个 `ACTIVE` TicketType。缺少可发行票种返回 `400 EVENT_HAS_NO_ACTIVE_TICKET_TYPES`。
 
 公开 Event Detail 额外返回 `organizer: { name }`，不暴露 organizer email、`organizerId`、创建时间等内部管理字段。公开 TicketType 只包含 `ACTIVE` 项，并由服务端计算 `remaining = totalSupply - claimedCount`。管理列表使用 `ManagedEventSummary`（Event 管理字段、`organizer: { id, name }`、`ticketTypeCount`），静态路由 `/events/mine`、`/events/admin` 在公开动态详情前注册；普通 user 和匿名请求分别返回 403、401。Admin 的 `/events/mine` 也只返回自己组织的活动，全平台视图独立使用 `/events/admin`。
 
-Claim Pass 请求不接受可信身份或库存字段；`ownerId` 固定来自 `session.user.id`。Event 必须为 `PUBLISHED`、TicketType 必须为 `ACTIVE` 且有库存，同一 User 对同一 TicketType 只能领取一次。重复领取、未发布、停用和售罄使用 `409` 与稳定业务错误码区分。
+Claim Pass 请求只接受可选的 `{ "invitationToken": "..." }`，不接受可信身份或库存字段；`ownerId` 固定来自 `session.user.id`。PUBLIC 活动仍支持空 body；INVITE_ONLY 活动没有 token 返回 `403 INVITATION_REQUIRED`。Event 必须为 `PUBLISHED`、TicketType 必须为 `ACTIVE` 且有库存，同一 User 对同一 TicketType 只能领取一次。重复领取、未发布、停用和售罄使用 `409` 与稳定业务错误码区分。
 
-库存扣减和 Pass 创建在同一数据库事务中完成。PostgreSQL 条件更新只在 `claimedCount < totalSupply` 时递增；`Pass(ticketTypeId, ownerId)` 唯一约束提供最终防重，Pass 创建失败会回滚库存更新。
+邀请次数递增、库存扣减和 Pass 创建在同一数据库事务中完成。PostgreSQL 条件更新只在邀请未撤销、未过期且 `usedCount < maxUses` 时递增次数，只在 `claimedCount < totalSupply` 时递增库存；`Pass(ticketTypeId, ownerId)` 唯一约束提供最终防重。售罄、重复或 Pass 创建失败会回滚次数与库存。多个邀请可绑定同一票种并共享其库存，但每个成功领取者持有独立 Pass。
+
+邀请创建 body 为 `{ ticketTypeId, maxUses, expiresAt }`；`maxUses` 是正整数，`expiresAt` 是未来的带时区 ISO 8601 时间。只有该 Event 下的 ACTIVE 票种可绑定。Resolve body 为 `{ token }`，返回最小 Event、organizer name、一个 TicketType、`expiresAt` 与 `remainingUses`。32 字节随机 bearer token 可转发，数据库只保存 SHA-256 hash；格式错误、未知 token 或错配票种返回 `400 INVALID_INVITATION`，过期/撤销/次数耗尽/不可用分别返回 `409 INVITATION_EXPIRED / INVITATION_REVOKED / INVITATION_EXHAUSTED / INVITATION_UNAVAILABLE`。管理与 Resolve 响应使用 `private, no-store`，token 不放入 API URL，也不记录到日志。邀请不是登录凭证、Pass 或现场 QR。
+
+新建 Event 的管理 Response 包含 `accessMode`，本版本不提供修改入口。Migration 将历史 Event 保留为 PUBLIC；API 创建省略该字段时显式使用 INVITE_ONLY。已有 Pass、Mint、QR 与 Check-in 无需重新签发。Web 入口为 `/invite#token=...`；登录返回仅传 `/invite`，凭证临时保存在当前 tab 的 sessionStorage，成功领取后清除。原生 Mobile 邀请链接入口尚未实现，公开活动及已领取 Pass 流程继续使用同一 Contract。
 
 Wallet 请求不能提交 `userId`。Challenge 绑定 Session User、canonical EVM address、chain ID、nonce、签发/过期时间，验证成功后原子标记已使用；同一 User 与同一 canonical address 均只能绑定一次。连接钱包不等于已验证绑定。
 
@@ -44,11 +52,11 @@ Mint 请求不能提交 recipient。API 从 Session 校验 Pass ownership，再�
 
 Verify 是只读操作：merchant 只能核验自己组织的 Event 下的 Pass，admin 可核验任意 Pass，普通 user 无权限。响应以 `VALID`、`ALREADY_CHECKED_IN`、`REVOKED`、`INVALID` 区分业务状态，并返回最小 Event、TicketType、Holder 与已有 CheckIn 信息。未 Mint 返回 `NOT_MINTED`；链上 owner 与已绑定 Wallet 一致返回 `VERIFIED`；不一致返回 `MISMATCH`；RPC 或链配置暂时不可用返回 `UNAVAILABLE`。链上状态是增强信息，不阻塞数据库中有效的 Off-chain Pass 核销。
 
-Check-in 请求只接受 `method`（当前 Web 使用 `MANUAL`），`verifiedById` 固定来自 Better Auth Session。服务端重新执行 Permission、Event Ownership 与 Pass 状态校验；条件状态更新和 CheckIn 创建位于同一事务，`CheckIn.passId` 唯一约束是最终防重。重复或并发失败返回 `409 PASS_ALREADY_CHECKED_IN`。
+Check-in 请求只接受 `method`（手工输入使用 `MANUAL`，扫码使用 `QR`），`verifiedById` 固定来自 Better Auth Session。服务端重新执行 Permission、Event Ownership 与 Pass 状态校验；条件状态更新和 CheckIn 创建位于同一事务，`CheckIn.passId` 唯一约束是最终防重。重复或并发失败返回 `409 PASS_ALREADY_CHECKED_IN`。
 
 QR Token 使用服务端 `QR_VERIFICATION_SECRET` 进行 HMAC-SHA256 签名，Payload 只包含版本、`passId`、`ownerId`、随机 nonce、签发时间和过期时间，不包含 Session、Email 或 Wallet 信息。Token 默认 60 秒过期，可在有效期内重复执行只读 Verify；签名错误返回 `400 INVALID_QR_TOKEN`，过期返回 `400 QR_TOKEN_EXPIRED`。服务端验签后重新读取 Pass，并调用与手工 Pass ID 相同的 Verify Service。最终核销仍调用 `/passes/:passId/check-in`，扫码方式提交 `method = QR`。
 
-TicketType 的 `price` 以最小货币单位的非负整数写入 PostgreSQL `BIGINT`；创建请求使用 JavaScript 安全整数，响应使用十进制字符串避免 JSON/JavaScript 精度损失，`"0"` 表示免费票。`claimedCount` 由服务端初始化为 `0`，客户端不能提交。Merchant 创建票种前必须通过 Event ownership 校验，admin 可以代管，查询接口保持为已登录用户可读的简单列表。
+TicketType 的 `price` 以最小货币单位的非负整数写入 PostgreSQL `BIGINT`；创建请求使用 JavaScript 安全整数，响应使用十进制字符串避免 JSON/JavaScript 精度损失，`"0"` 表示免费票。`claimedCount` 由服务端初始化为 `0`，客户端不能提交。Merchant 创建或查询管理票种必须通过 Event ownership 校验，admin 可以代管；用户仅通过公开 Event Detail 或有效邀请预览获取可领票种。
 
 业务 API 的目标链路是：
 

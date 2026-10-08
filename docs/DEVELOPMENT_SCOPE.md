@@ -44,6 +44,7 @@ Check-in
 - Merchant Verify / Check-in Vertical Slice：Event Ownership 核验、只读 Pass Verify、原子 CheckIn、防并发重复核销与 Merchant Web 操作页。
 - Dynamic QR Verification Vertical Slice：短时 HMAC Credential、用户动态 QR、Merchant 摄像头扫描，以及复用既有 Verify/Check-in。
 - Web 产品界面：正式 Auth、统一角色导航、公开首页/活动、User Pass 票面与钱包/Mint/QR、Merchant Dashboard/活动/核销、Admin Dashboard/用户提升 Merchant/平台活动。数据来自现有 API 与最小受限活动列表接口；无支付、活动编辑/删除、Admin 自助注册或复杂统计。
+- Invitation-only Claim（Web-first）：新建活动默认邀请制，可显式公开；历史活动保持 PUBLIC。商家为已发布活动创建可转发、绑定具体票种、限次数且有有效期的邀请，并可撤销。用户经邀请预览、登录/注册返回后复用现有 Claim；邀请次数、库存与 Pass 创建同事务，已领取 Pass 继续使用原 Mint/QR/Check-in。详见 [API_CONTRACT.md](./API_CONTRACT.md)。
 - Mobile User Experience Vertical Slice：Better Auth Expo/SecureStore 登录、公开活动浏览、Claim、My Passes、Pass Detail 与动态 QR 展示。
 - Production Deployment Artifacts：Web/API production image、Nginx same-origin routing、PostgreSQL persistence/health、Prisma deploy migration 与单服务器操作文档。
 - Huawei Cloud Production / CI/CD：HTTP 单服务器部署、main/develop CI 与人工触发的 GitHub Production Deploy 已有成功记录；生产四容器健康、数据库连接与公网入口已只读复核。具体 release、尚未进入 main 的 workflow 加固与配置漂移见 [DEPLOYMENT.md](./DEPLOYMENT.md)，不能把健康检查视为所有生产业务已验收。
@@ -51,6 +52,7 @@ Check-in
 尚未实现或尚未接通：
 
 - Mobile Merchant Scanner、Wallet Binding 与 Mint 操作；
+- Mobile 原生邀请链接入口与邀请领取 UI（已有 Pass 展示/QR 和公开活动 Claim 不受影响）；
 - 域名 DNS、HTTPS / Camera secure-context 验收，异机备份/恢复演练与生产浏览器 Wallet 全链路验收；
 
 因此后续任务应以完成 Vertical Slice 为目标，不能把骨架目录视为已交付能力。
@@ -65,6 +67,7 @@ Check-in
 - `Pass`：领取、持有、Mint 与当前业务状态；
 - `Wallet`：Better Auth User 唯一的 canonical、已验证链上地址；
 - `CheckIn`：核验/核销记录与防重依据。
+- `Invitation`：绑定一个 TicketType 的可转发领取资格、quota、expiry、revocation；不是第二套身份或现场 QR。
 
 必要的 Wallet 关联、交易记录或 outbox-like 状态只有在 Mint/Check-in Slice 的一致性设计明确需要时才加入，并保持最小。未经讨论不扩展大量 Domain Entity，也不创建第二套 User/MerchantUser/WalletUser。
 
@@ -131,7 +134,8 @@ Done
 
 ```text
 Merchant 登录并创建活动/票种
-  → User 浏览并领取 Pass
+  → 发布并分享票种邀请（或显式公开供 Discover 浏览）
+  → User 登录并领取自己的 Pass
   → Pass 完成链上 Mint
   → User 在 My Pass 查看链上信息与二维码
   → Merchant 核验并 Check-in

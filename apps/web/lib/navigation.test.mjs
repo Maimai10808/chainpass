@@ -10,6 +10,12 @@ test("roles have stable landing pages and unknown roles receive no elevated UI",
 });
 
 test("next redirects retain authorized local paths and query strings", () => {
+  assert.equal(loginDestination("user", "/invite"), "/invite");
+  assert.equal(loginDestination("merchant", "/invite"), "/invite");
+  assert.equal(
+    loginDestination("user", "/invite?token=must-not-leak#token=must-not-leak"),
+    "/invite",
+  );
   assert.equal(
     loginDestination("user", "/events/abc?ticket=general"),
     "/events/abc?ticket=general",
